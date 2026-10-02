@@ -5386,6 +5386,16 @@ body{ padding-bottom:22px; }
         actualizado: ahora,
         margenOverride: viejo ? viejo.margenOverride : undefined,
       });
+      /* El precio que trae la lista se calculó con el margen GENERAL. Un
+         artículo con margen propio (o de su sección) tiene que salir con
+         el suyo, si no la lista nueva le pisa el precio sin avisar. */
+      const general = typeof opts.margen === "number" ? opts.margen
+        : (global.Precio ? Precio.config().margenObjetivo : undefined);
+      if (typeof general === "number" && cat[p.ean].costoNeto > 0) {
+        const nuevo = cat[p.ean];
+        nuevo.precioUnit = Math.round(precioVenta(nuevo.costoNeto, margenDe(nuevo, general)) * 100) / 100;
+        nuevo.precioBulto = Math.round(nuevo.precioUnit * (nuevo.uc || 1) * 100) / 100;
+      }
     }
 
     /* Los que ya no vienen en la lista se desactivan, no se borran:
@@ -7730,13 +7740,21 @@ function qrReTraerCatalogo(){
     if (!n) return;
     /* El carrito guarda el precio del momento en que se cargó: se lo
        pone al día, o el total no coincide con la lista nueva. */
+    var enCarrito = [];
     (E.carrito || []).forEach(function(it){
       var p = CATALOGO.find(function(x){ return it.tipo === 'familia' ? x.familiaKey === it.familiaKey : x.ean === it.ean; });
-      if (p && p.precioBulto > 0) { it.precioUnit = p.precioUnit; it.precioBulto = p.precioBulto; }
+      if (p && p.precioBulto > 0) {
+        if (Math.abs((it.precioBulto || 0) - p.precioBulto) > 0.01) enCarrito.push(it.nombre);
+        it.precioUnit = p.precioUnit; it.precioBulto = p.precioBulto;
+      }
     });
     persistir();
     if (_montado) { renderGrid(); updCartUI(); }
-    if (window.showToast) showToast('Precios de Queruclor actualizados (' + n + ')', 'info');
+    /* Si cambió algo que YA está en el carrito, puede que el vendedor ya
+       le haya dicho el precio al cliente: se le avisa con nombre y apellido. */
+    if (!window.showToast) return;
+    if (enCarrito.length) showToast('Cambió el precio de ' + enCarrito.slice(0,2).join(', ') + (enCarrito.length > 2 ? ' y ' + (enCarrito.length - 2) + ' más' : '') + ' en tu carrito. Revisá el total antes de enviar.', 'error');
+    else showToast('Precios de Queruclor actualizados (' + n + ')', 'info');
   }).catch(function(){});
 }
 setInterval(qrReTraerCatalogo, 60000);

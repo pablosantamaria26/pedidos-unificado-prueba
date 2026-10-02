@@ -2,444 +2,379 @@
 <html lang="es">
 <head>
 <script>window.QR_API_BASE="https://queruclor-prueba-api.santamariapablodaniel.workers.dev";</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Queruclor · Admin</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════════
-   ADMIN — hoja de estilo, versión con color
+   ADMIN — hoja de estilo, versión sobria (oct-2026)
 
-   La primera versión era clara y ordenada pero apagada: blanco sobre
-   blanco con una línea verde. Pablo la quiso con más energía —formas,
-   color, efectos— así que esta es esa.
+   Pablo la pidió «más seria y profesional, sin perder lo de leer los
+   datos fácil, para los días en que se presta poca atención». La
+   versión anterior era colorida: degradés, manchas de fondo y un color
+   distinto por sección. Lindo, pero el color estaba en todos lados y
+   entonces no decía nada.
 
-   ── LA REGLA QUE NO SE ROMPE ─────────────────────────────────────
-   Colorido no es ilegible. Esto es un panel donde se deciden precios y
-   compras de millones: los NÚMEROS siempre van sobre fondo plano y con
-   contraste alto. El color y los efectos van en los fondos, los bordes
-   y los adornos — nunca abajo de una cifra que hay que leer.
+   ── LA REGLA ─────────────────────────────────────────────────────
+   El color es INFORMACIÓN, no decoración:
+     · verde de marca → lo que se toca (botones, foco, selección)
+     · rojo / ámbar / verde → estado (urgente / a mirar / bien)
+     · todo lo demás → neutros
+   Si algo está en rojo, es porque hay que hacer algo. Con eso alcanza
+   para un vistazo de dos segundos.
 
-   ── CADA SECCIÓN TIENE SU COLOR ──────────────────────────────────
-   Catálogo violeta, Precios verde, Ofertas magenta, Tablero cian,
-   Vendedores ámbar, Compras índigo. No es decoración: sirve para saber
-   dónde estás sin leer el título, y para que el ojo agarre el ritmo de
-   moverse entre secciones.
+   ── LOS NÚMEROS ──────────────────────────────────────────────────
+   Grandes, oscuros, sobre blanco liso y con cifras tabulares (todas
+   del mismo ancho, así las columnas se alinean y se comparan solas).
+   La etiqueta va arriba y chica: primero se lee el número.
 
-   ── LAS FORMAS DEL FONDO ─────────────────────────────────────────
-   Manchas difuminadas, fijas, muy suaves. Van detrás de todo y no
-   scrollean: dan profundidad sin competir con el contenido. Es el mismo
-   recurso que ya usa la caja, así que las dos apps se sienten de la
-   misma familia.
+   ── LO QUE SE CONSERVA ───────────────────────────────────────────
+   Todos los selectores de la hoja anterior siguen existiendo, porque
+   el HTML de los paneles y los módulos los usan. Las variables viejas
+   (--violeta, --g, --v…) siguen definidas: hay estilos en línea que
+   las nombran.
    ═══════════════════════════════════════════════════════════════════ */
 
 :root{
-  /* ── Tintas ─────────────────────────────────────────────────── */
-  --ink:#141b2e; --ink2:#4b5670; --ink3:#8792ab;
-  --paper:#fff; --line:#e7eaf3; --line2:#f1f3f9;
+  /* ── Neutros, con un dejo verde para que no se vean de oficina ─── */
+  --ink:#17201c; --ink2:#47524c; --ink3:#7b8680;
+  --paper:#fff; --line:#e1e5e2; --line2:#eef1ef;
+  --ground:#f3f5f3;
 
-  /* ── La paleta ──────────────────────────────────────────────── */
-  --verde:#0e6b3e;   --verde2:#16a34a;   --verde-l:#e8f7ee;
-  --violeta:#6C63FF; --violeta2:#8b7cff; --violeta-l:#eeecff;
-  --magenta:#c2007a; --magenta2:#e0399b; --magenta-l:#fdeaf6;
-  --cian:#0891b2;    --cian2:#22b8d9;    --cian-l:#e6f7fb;
-  --ambar:#d97706;   --ambar2:#f59e0b;   --ambar-l:#fef4e6;
-  --indigo:#4338ca;  --indigo2:#6366f1;  --indigo-l:#eef0fe;
-  --rojo:#dc2626;    --rojo2:#ef4444;    --rojo-l:#fdecec;
+  /* ── Marca: un solo verde ──────────────────────────────────────── */
+  --brand:#14563a; --brand-d:#0e3f2a; --brand-soft:#e8f2ec; --brand-line:#b9d8c6;
 
-  /* El color de la sección actual. Lo cambia el JS al navegar, y todo
-     lo que use `--acento` se tiñe solo. Un único punto de verdad. */
-  --acento:var(--violeta); --acento2:var(--violeta2); --acento-l:var(--violeta-l);
+  /* ── Estados ───────────────────────────────────────────────────── */
+  --good:#1b7a4b;  --good-soft:#e7f4ec;
+  --warn:#a85a07;  --warn-soft:#fdf3e3;
+  --bad:#b42318;   --bad-soft:#fdecea;
+  --info:#2f5aa8;  --info-soft:#eaf0fb;
 
-  /* ── Alias de la hoja vieja ──────────────────────────────────────
-     El HTML de los paneles tiene estilos EN LÍNEA con estos nombres
-     (`style="color:var(--g)"`). No se pueden tocar sin reescribir el
-     markup entero, así que se redefinen apuntando a la paleta nueva.
-     Sin esto el navegador los ignora en silencio y quedan bordes que
-     desaparecen y textos en negro donde iba gris. */
-  --v:#0e6b3e;  --vd:#0a5230;  --vm:#16a34a;  --vl:#e8f7ee;  --vx:#bfe6cf;
-  --am:#d97706; --aml:#fef4e6;
-  --r:#dc2626;  --rl:#fdecec;
-  --mo:#6C63FF;
-  --g:#4b5670;  --gl:#8792ab;  --n:#141b2e;
-  --b:#e7eaf3;  --bg:#f6f7fc;
-  --s1:0 1px 3px rgba(20,27,46,.06);
+  /* ── Paleta vieja, apagada ─────────────────────────────────────────
+     Los módulos y los estilos en línea todavía las nombran. Apuntan a
+     tonos sobrios para que nada vuelva a salir chillón. */
+  --verde:#14563a;   --verde2:#1b7a4b;   --verde-l:#e8f2ec;
+  --violeta:#3f4f8f; --violeta2:#5566a8; --violeta-l:#eceff8;
+  --magenta:#8e2f5f; --magenta2:#a8456f; --magenta-l:#f7ecf1;
+  --cian:#2f5aa8;    --cian2:#3f6dbd;    --cian-l:#eaf0fb;
+  --ambar:#a85a07;   --ambar2:#c46d0d;   --ambar-l:#fdf3e3;
+  --indigo:#3f4f8f;  --indigo2:#5566a8;  --indigo-l:#eceff8;
+  --rojo:#b42318;    --rojo2:#c9372c;    --rojo-l:#fdecea;
 
-  /* ── Nombres que usan los módulos ────────────────────────────────
-     `admin-precios.js` y `admin-buscador.js` traen su propio CSS y
-     nombran los colores así. Sin estas definiciones el navegador ignora
-     la regla completa en silencio — fue por esto que el slider de IIBB
-     salió azul del navegador en vez de ámbar. */
-  --ground:#f6f7fc;
-  --brand:#0e6b3e; --brand-d:#0a5230; --brand-soft:#e8f7ee; --brand-line:#bfe6cf;
-  --good:#16a34a;  --good-soft:#e8f7ee;
-  --warn:#d97706;  --warn-soft:#fef4e6;
-  --bad:#dc2626;   --bad-soft:#fdecec;
-  --info:#4338ca;  --info-soft:#eef0fe;
+  /* El acento es SIEMPRE la marca. (El JS viejo lo cambiaba por
+     sección; `admin-avisos.js` lo vuelve a fijar.) */
+  --acento:var(--brand); --acento2:var(--good); --acento-l:var(--brand-soft);
 
-  --rad:16px; --rad-s:11px;
-  --sombra:0 2px 10px rgba(20,27,46,.05);
-  --sombra-2:0 14px 40px rgba(20,27,46,.14);
+  --v:#14563a;  --vd:#0e3f2a;  --vm:#1b7a4b;  --vl:#e8f2ec;  --vx:#b9d8c6;
+  --am:#a85a07; --aml:#fdf3e3;
+  --r:#b42318;  --rl:#fdecea;
+  --mo:#3f4f8f;
+  --g:#47524c;  --gl:#7b8680;  --n:#17201c;
+  --b:#e1e5e2;  --bg:#f3f5f3;
+  --s1:0 1px 2px rgba(23,32,28,.05);
+
+  --rad:10px; --rad-s:8px;
+  --sombra:0 1px 2px rgba(23,32,28,.04);
+  --sombra-2:0 12px 32px rgba(23,32,28,.16);
+
+  --fuente:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
 
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
-  background:#f6f7fc; color:var(--ink);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--ground); color:var(--ink);
+  font-family:var(--fuente);
   font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
   min-height:100vh; position:relative;
 }
-/* Las manchas del fondo. `fixed` para que no se muevan al scrollear y
-   `-1` para que queden detrás de todo sin tapar ningún click. */
-body::before{
-  content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
-  background:
-    radial-gradient(680px 480px at 8% -6%,  rgba(108,99,255,.16), transparent 62%),
-    radial-gradient(620px 460px at 96% 4%,  rgba(194,0,122,.11),  transparent 60%),
-    radial-gradient(700px 520px at 78% 96%, rgba(8,145,178,.13),  transparent 62%),
-    radial-gradient(520px 420px at 4% 88%,  rgba(22,163,74,.12),  transparent 60%);
-}
+body::before{content:none}
 button,input,select,textarea{font:inherit; color:inherit}
+:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
 
 /* ══ ARMAZÓN ══════════════════════════════════════════════════════ */
 .layout{display:flex; min-height:100vh}
 
 .sidebar{
-  width:238px; flex:none; position:sticky; top:0; height:100vh;
+  width:228px; flex:none; position:sticky; top:0; height:100vh;
   display:flex; flex-direction:column;
-  background:linear-gradient(168deg,#123b2a 0%,#0b2a20 52%,#0d1f2c 100%);
-  box-shadow:4px 0 30px rgba(11,42,32,.20); z-index:50;
+  background:#11241c; z-index:50;
 }
-/* Un brillo suave arriba, para que el degradé no se vea plano. */
-.sidebar::before{
-  content:''; position:absolute; inset:0; pointer-events:none;
-  background:radial-gradient(340px 220px at 20% 0%, rgba(108,99,255,.24), transparent 70%);
-}
-.sb-brand{padding:20px 20px 16px; position:relative}
-/* El logo es un JPEG con fondo BLANCO. Invertirlo para que combine con
-   la barra oscura lo convertía en un rectángulo blanco liso: el filtro
-   aplasta a negro y después invierte, así que el dibujo desaparece
-   junto con el fondo.
-
-   Se lo deja tal cual, dentro de una tarjeta blanca redondeada. Además
-   conserva el verde de la marca, que era lo que se perdía. */
+.sidebar::before{content:none}
+.sb-brand{padding:20px 18px 14px; position:relative}
+/* El logo es un JPEG con fondo blanco: va en su tarjetita blanca. */
 .sb-logo{
-  width:124px; height:auto; display:block;
-  background:#fff; padding:9px 11px; border-radius:12px;
-  box-shadow:0 4px 14px rgba(0,0,0,.22);
+  width:112px; height:auto; display:block;
+  background:#fff; padding:8px 10px; border-radius:8px;
 }
 .sb-brand p{
-  margin:9px 0 0; font-size:10px; font-weight:800; letter-spacing:.12em;
-  text-transform:uppercase; color:rgba(255,255,255,.5);
+  margin:10px 0 0; font-size:10px; font-weight:600; letter-spacing:.14em;
+  text-transform:uppercase; color:rgba(255,255,255,.45);
 }
-.sb-nav{flex:1; padding:10px 12px; overflow-y:auto; position:relative}
+.sb-nav{flex:1; padding:8px 10px; overflow-y:auto; position:relative}
 .sbnav-item{
-  position:relative; display:flex; align-items:center; gap:12px;
-  padding:11px 13px; margin-bottom:3px; border-radius:var(--rad-s);
-  font-size:13.5px; font-weight:600; color:rgba(255,255,255,.72); cursor:pointer;
-  transition:background .16s, color .16s, transform .16s;
+  position:relative; display:flex; align-items:center; gap:11px;
+  padding:10px 12px; margin-bottom:2px; border-radius:var(--rad-s);
+  font-size:13.5px; font-weight:500; color:rgba(255,255,255,.7); cursor:pointer;
+  transition:background .15s, color .15s;
 }
-.sbnav-item:hover{background:rgba(255,255,255,.09); color:#fff; transform:translateX(2px)}
-.sbnav-item.active{
-  background:rgba(255,255,255,.14); color:#fff; font-weight:800;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);
-}
-/* La barrita de color a la izquierda del activo, del color de la
-   sección: es la que ata el menú con el contenido. */
+.sbnav-item:hover{background:rgba(255,255,255,.06); color:#fff}
+.sbnav-item.active{background:rgba(255,255,255,.10); color:#fff; font-weight:600; box-shadow:none}
 .sbnav-item.active::before{
-  content:''; position:absolute; left:-12px; top:9px; bottom:9px; width:4px;
-  border-radius:0 4px 4px 0;
-  background:linear-gradient(180deg,var(--acento2),var(--acento));
-  box-shadow:0 0 14px var(--acento2);
+  content:''; position:absolute; left:-10px; top:8px; bottom:8px; width:3px;
+  border-radius:0 3px 3px 0; background:#7cc59d; box-shadow:none;
 }
-.sbnav-icon{font-size:15px; width:20px; text-align:center; flex:none}
-.sb-footer{padding:14px 20px; border-top:1px solid rgba(255,255,255,.1)}
-.sb-footer p{margin:0; font-size:10px; color:rgba(255,255,255,.42); line-height:1.7}
+.sbnav-icon{font-size:14px; width:20px; text-align:center; flex:none; display:inline-grid; place-items:center; opacity:.75}
+.sbnav-item.active .sbnav-icon{opacity:1; color:#9fd6b6}
+/* Contador de avisos al lado de la sección (lo pone admin-avisos.js). */
+.sbnav-n{margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:99px;
+  background:var(--bad); color:#fff; font-size:11px; font-weight:700;
+  display:inline-grid; place-items:center; font-variant-numeric:tabular-nums}
+.sbnav-n.warn{background:var(--warn)}
+.sb-footer{padding:14px 18px; border-top:1px solid rgba(255,255,255,.08)}
+.sb-footer p{margin:0; font-size:10.5px; color:rgba(255,255,255,.4); line-height:1.7}
 
 .main{flex:1; min-width:0; display:flex; flex-direction:column}
 
 .top-header{
   position:sticky; top:0; z-index:40;
-  display:flex; align-items:center; gap:16px; padding:0 26px; height:64px;
-  background:rgba(255,255,255,.78); backdrop-filter:blur(14px) saturate(1.5);
-  border-bottom:1px solid rgba(231,234,243,.9);
+  display:flex; align-items:center; gap:14px; padding:0 28px; height:62px;
+  background:#fff; border-bottom:1px solid var(--line);
 }
 .top-logo{display:none}
 .top-header h2{
-  margin:0; font-size:17px; font-weight:800; letter-spacing:-.02em; white-space:nowrap;
-  background:linear-gradient(120deg,var(--acento),var(--acento2));
-  -webkit-background-clip:text; background-clip:text; color:transparent;
+  margin:0; font-size:18px; font-weight:600; letter-spacing:-.01em; white-space:nowrap;
+  color:var(--ink); background:none; -webkit-background-clip:initial; background-clip:initial;
 }
 
-.content{flex:1; padding:26px; max-width:1420px; width:100%}
+.content{flex:1; padding:24px 28px 40px; max-width:1400px; width:100%}
 .panel{display:none}
-.panel.active{display:block; animation:entra .26s cubic-bezier(.2,.7,.3,1)}
-@keyframes entra{from{opacity:0; transform:translateY(8px)}to{opacity:1;transform:none}}
+.panel.active{display:block; animation:entra .18s ease-out}
+@keyframes entra{from{opacity:0}to{opacity:1}}
 
 /* ══ TARJETAS ═════════════════════════════════════════════════════ */
 .card{
   position:relative; background:var(--paper);
   border:1px solid var(--line); border-radius:var(--rad);
-  box-shadow:var(--sombra); margin-bottom:18px; overflow:hidden;
-  transition:box-shadow .2s, transform .2s;
+  box-shadow:var(--sombra); margin-bottom:16px; overflow:hidden;
 }
-/* Filete de color arriba de cada tarjeta. */
-.card::before{
-  content:''; position:absolute; top:0; left:0; right:0; height:3px;
-  background:linear-gradient(90deg,var(--acento),var(--acento2),transparent 88%);
-}
-.card:hover{box-shadow:0 8px 26px rgba(20,27,46,.09)}
+.card::before{content:none}
+.card:hover{box-shadow:var(--sombra)}
 .card-hdr{
   display:flex; align-items:center; justify-content:space-between; gap:14px;
-  padding:16px 18px; border-bottom:1px solid var(--line2);
-  font-size:13.5px; font-weight:800; color:var(--ink);
+  padding:14px 18px; border-bottom:1px solid var(--line2);
+  font-size:14px; font-weight:600; color:var(--ink);
 }
-.card-hdr h3{margin:0; font-size:14.5px; font-weight:800; color:var(--ink)}
-.card-hdr p{margin:2px 0 0; font-size:11.5px; font-weight:500; color:var(--ink3)}
+.card-hdr h3{margin:0; font-size:15px; font-weight:600; color:var(--ink)}
+.card-hdr p{margin:2px 0 0; font-size:12.5px; font-weight:400; color:var(--ink3)}
 .card-hdr > div{min-width:0}
 .card-body{padding:18px}
 
-/* ══ KPIs ═════════════════════════════════════════════════════════ */
+/* ══ KPIs ═════════════════════════════════════════════════════════
+   Tarjeta blanca, etiqueta arriba, número grande. El estado se marca
+   con una franja a la izquierda y el color del número — nunca con el
+   fondo entero, para que el número se lea siempre igual de fácil. */
 .kpi-grid{
-  display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr));
-  gap:14px; margin-bottom:20px;
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:12px; margin-bottom:18px;
 }
 .kpi{
-  position:relative; overflow:hidden; padding:18px 20px; border-radius:var(--rad);
-  color:#fff; background:linear-gradient(135deg,var(--verde) 0%,var(--verde2) 100%);
-  box-shadow:0 8px 22px rgba(14,107,62,.24);
-  transition:transform .2s, box-shadow .2s;
+  position:relative; overflow:hidden; padding:15px 18px 14px;
+  border-radius:var(--rad); background:var(--paper); color:var(--ink);
+  border:1px solid var(--line); box-shadow:var(--sombra);
+  display:flex; flex-direction:column;
 }
-.kpi:hover{transform:translateY(-3px); box-shadow:0 14px 32px rgba(14,107,62,.30)}
-/* El círculo grande del fondo: la «forma» que le da carácter sin
-   estorbar, porque vive en la esquina y es casi transparente. */
-.kpi::after{
-  content:''; position:absolute; right:-38px; top:-46px;
-  width:150px; height:150px; border-radius:50%;
-  background:rgba(255,255,255,.13); pointer-events:none;
-}
-.kpi::before{
-  content:''; position:absolute; right:14px; bottom:-52px;
-  width:96px; height:96px; border-radius:50%;
-  background:rgba(255,255,255,.09); pointer-events:none;
-}
+.kpi:hover{transform:none; box-shadow:var(--sombra)}
+.kpi::before,.kpi::after{content:none}
 .kpi-val{
-  position:relative; font-size:26px; font-weight:800; letter-spacing:-.025em;
-  font-variant-numeric:tabular-nums; line-height:1.15; color:#fff;
+  order:2; font-size:28px; font-weight:600; letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums; line-height:1.15; color:var(--ink); margin-top:4px;
 }
-.kpi-lbl{position:relative; font-size:12px; font-weight:700;
-  color:rgba(255,255,255,.92); margin-top:3px}
-.kpi-sub{position:relative; font-size:11px; color:rgba(255,255,255,.7); margin-top:3px}
-
-/* Los tres primeros de cada fila rotan de color solos: sin esto, cuatro
-   tarjetas del mismo verde se leen como un bloque y no como cuatro
-   números distintos. */
-.kpi-grid > .kpi:nth-child(2){
-  background:linear-gradient(135deg,var(--violeta) 0%,var(--violeta2) 100%);
-  box-shadow:0 8px 22px rgba(108,99,255,.26)}
-.kpi-grid > .kpi:nth-child(2):hover{box-shadow:0 14px 32px rgba(108,99,255,.32)}
-.kpi-grid > .kpi:nth-child(3){
-  background:linear-gradient(135deg,var(--cian) 0%,var(--cian2) 100%);
-  box-shadow:0 8px 22px rgba(8,145,178,.26)}
-.kpi-grid > .kpi:nth-child(3):hover{box-shadow:0 14px 32px rgba(8,145,178,.32)}
-.kpi-grid > .kpi:nth-child(4){
-  background:linear-gradient(135deg,var(--magenta) 0%,var(--magenta2) 100%);
-  box-shadow:0 8px 22px rgba(194,0,122,.24)}
-.kpi-grid > .kpi:nth-child(4):hover{box-shadow:0 14px 32px rgba(194,0,122,.30)}
-.kpi-grid > .kpi:nth-child(5){
-  background:linear-gradient(135deg,var(--ambar) 0%,var(--ambar2) 100%);
-  box-shadow:0 8px 22px rgba(217,119,6,.26)}
-
-/* Los modificadores explícitos ganan: si algo es una alerta, va rojo
-   aunque le toque otro color por posición. */
-.kpi.amber,.kpi-grid > .kpi.amber{
-  background:linear-gradient(135deg,var(--ambar) 0%,var(--ambar2) 100%);
-  box-shadow:0 8px 22px rgba(217,119,6,.26)}
-.kpi.red,.kpi-grid > .kpi.red{
-  background:linear-gradient(135deg,var(--rojo) 0%,var(--rojo2) 100%);
-  box-shadow:0 8px 22px rgba(220,38,38,.26)}
-.kpi.violet,.kpi-grid > .kpi.violet{
-  background:linear-gradient(135deg,var(--indigo) 0%,var(--indigo2) 100%);
-  box-shadow:0 8px 22px rgba(67,56,202,.26)}
+.kpi-lbl{order:1; font-size:11px; font-weight:600; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--ink3)}
+.kpi-sub{order:3; font-size:12px; color:var(--ink3); margin-top:3px}
+/* Un KPI de texto (una fecha, un período) no se lee como cifra: va más chico. */
+.kpi-val.texto{font-size:17px; letter-spacing:0; line-height:1.3}
+.kpi-grid > .kpi:nth-child(n){background:var(--paper); box-shadow:var(--sombra)}
+.kpi.amber,.kpi-grid > .kpi.amber,
+.kpi.red,.kpi-grid > .kpi.red,
+.kpi.violet,.kpi-grid > .kpi.violet{background:var(--paper); box-shadow:var(--sombra)}
+/* Estados explícitos (los ponen los módulos): franja + número de color. */
+.kpi.bien{box-shadow:inset 3px 0 0 var(--good)} .kpi.bien .kpi-val{color:var(--good)}
+.kpi.ojo{box-shadow:inset 3px 0 0 var(--warn)}  .kpi.ojo .kpi-val{color:var(--warn)}
+.kpi.mal{box-shadow:inset 3px 0 0 var(--bad)}   .kpi.mal .kpi-val{color:var(--bad)}
+.kpi[onclick]{cursor:pointer}
+.kpi[onclick]:hover{border-color:var(--brand-line)}
 
 /* ══ BOTONES ══════════════════════════════════════════════════════ */
 .btn-prim,.btn-green,.btn-amber,.btn-danger,.btn-outline{
   display:inline-flex; align-items:center; gap:7px; justify-content:center;
-  padding:10px 17px; border:1px solid transparent; border-radius:var(--rad-s);
-  font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap;
-  transition:transform .15s, box-shadow .15s, filter .15s;
+  padding:9px 16px; border:1px solid transparent; border-radius:var(--rad-s);
+  font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;
+  transition:background .15s, border-color .15s, color .15s; box-shadow:none;
 }
-.btn-prim,.btn-green{
-  background:linear-gradient(135deg,var(--verde),var(--verde2)); color:#fff;
-  box-shadow:0 4px 14px rgba(14,107,62,.28)}
-.btn-amber{background:linear-gradient(135deg,var(--ambar),var(--ambar2)); color:#fff;
-  box-shadow:0 4px 14px rgba(217,119,6,.28)}
-.btn-danger{background:linear-gradient(135deg,var(--rojo),var(--rojo2)); color:#fff;
-  box-shadow:0 4px 14px rgba(220,38,38,.28)}
-.btn-prim:hover,.btn-green:hover,.btn-amber:hover,.btn-danger:hover{
-  transform:translateY(-1px); filter:brightness(1.06)}
+.btn-prim,.btn-green{background:var(--brand); color:#fff}
+.btn-prim:hover,.btn-green:hover{background:var(--brand-d)}
+.btn-amber{background:var(--warn); color:#fff}
+.btn-danger{background:var(--bad); color:#fff}
+.btn-amber:hover,.btn-danger:hover{filter:brightness(.92)}
 .btn-outline{background:var(--paper); color:var(--ink2); border-color:var(--line)}
-.btn-outline:hover{border-color:var(--acento); color:var(--acento);
-  box-shadow:0 3px 12px rgba(20,27,46,.07)}
-button:disabled{opacity:.45; cursor:default; transform:none !important;
-  filter:none !important; box-shadow:none !important}
+.btn-outline:hover{border-color:var(--brand-line); color:var(--brand); box-shadow:none}
+button:disabled{opacity:.45; cursor:default; filter:none !important; box-shadow:none !important}
 
 /* ══ FORMULARIOS ══════════════════════════════════════════════════ */
 .form-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px}
 .form-group{display:flex; flex-direction:column; gap:5px}
-.form-group label{font-size:11px; font-weight:800; letter-spacing:.05em;
+.form-group label{font-size:11px; font-weight:600; letter-spacing:.06em;
   text-transform:uppercase; color:var(--ink3)}
 .form-inp,.form-sel,.num-inp,.margen-inp,.srch,.obj-inp-g input{
-  width:100%; padding:10px 12px; border:1.5px solid var(--line);
+  width:100%; padding:9px 11px; border:1px solid var(--line);
   border-radius:var(--rad-s); background:var(--paper); font-size:13.5px;
   outline:none; transition:border-color .15s, box-shadow .15s;
 }
 .form-inp:focus,.form-sel:focus,.num-inp:focus,.margen-inp:focus,.srch:focus,
-.obj-inp-g input:focus{
-  border-color:var(--acento); box-shadow:0 0 0 3.5px var(--acento-l)}
-.num-inp,.margen-inp{font-variant-numeric:tabular-nums; text-align:right; font-weight:700}
+.obj-inp-g input:focus{border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft)}
+.num-inp,.margen-inp{font-variant-numeric:tabular-nums; text-align:right; font-weight:600}
+.num-inp.poco{border-color:#e7c27d; background:var(--warn-soft)}
+.num-inp.sin{border-color:#eba59d; background:var(--bad-soft)}
 .filters{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px}
-.srch{max-width:340px}
-input[type=range]{accent-color:var(--acento)}
+.srch{max-width:320px}
+input[type=range]{accent-color:var(--brand)}
 
-.toggle-sw{position:relative; display:inline-block; width:44px; height:25px; flex:none}
+.toggle-sw{position:relative; display:inline-block; width:40px; height:22px; flex:none}
 .toggle-sw input{opacity:0; width:0; height:0}
-.t-sl{position:absolute; inset:0; background:#d3d8e6; border-radius:13px;
-  cursor:pointer; transition:.22s}
-.t-sl:before{content:''; position:absolute; width:19px; height:19px; left:3px; top:3px;
-  background:#fff; border-radius:50%; transition:.22s; box-shadow:0 1px 4px rgba(0,0,0,.22)}
-.toggle-sw input:checked + .t-sl{
-  background:linear-gradient(135deg,var(--verde),var(--verde2))}
-.toggle-sw input:checked + .t-sl:before{transform:translateX(19px)}
+.t-sl{position:absolute; inset:0; background:#cdd3cf; border-radius:12px; cursor:pointer; transition:.2s}
+.t-sl:before{content:''; position:absolute; width:16px; height:16px; left:3px; top:3px;
+  background:#fff; border-radius:50%; transition:.2s; box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle-sw input:checked + .t-sl{background:var(--good)}
+.toggle-sw input:checked + .t-sl:before{transform:translateX(18px)}
 
 /* ══ TABLAS ═══════════════════════════════════════════════════════ */
-.tbl-wrap{overflow-x:auto; border-radius:var(--rad-s)}
+.tbl-wrap{overflow-x:auto; border-radius:var(--rad-s); border:1px solid var(--line2)}
 table{width:100%; border-collapse:collapse; font-size:13px}
 thead th{
-  position:sticky; top:0; z-index:1; text-align:left; padding:11px 12px;
-  background:linear-gradient(180deg,var(--acento-l),#fff);
-  font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
-  color:var(--ink2); border-bottom:2px solid var(--acento); white-space:nowrap;
+  position:sticky; top:0; z-index:1; text-align:left; padding:10px 12px;
+  background:#f7f8f7; font-size:11px; font-weight:600; letter-spacing:.05em;
+  text-transform:uppercase; color:var(--ink3); border-bottom:1px solid var(--line); white-space:nowrap;
 }
-tbody td{padding:11px 12px; border-bottom:1px solid var(--line2); vertical-align:middle}
+tbody td{padding:10px 12px; border-bottom:1px solid var(--line2); vertical-align:middle}
 tbody tr:last-child td{border-bottom:0}
-tbody tr{transition:background .12s}
-tbody tr:hover{background:var(--acento-l)}
+tbody tr:hover{background:#f8faf8}
 td[align=right]{text-align:right; font-variant-numeric:tabular-nums}
-.tbl-img{width:36px; height:36px; object-fit:contain; border-radius:8px;
-  background:var(--line2); flex:none}
+.tbl-img{width:34px; height:34px; object-fit:contain; border-radius:6px; background:var(--line2); flex:none}
 .precio-viejo{text-decoration:line-through; color:var(--ink3); font-size:12px}
-.precio-nuevo{font-weight:800; color:var(--verde); font-variant-numeric:tabular-nums}
-.badge-mix{display:inline-block; padding:3px 9px; border-radius:99px;
-  background:linear-gradient(135deg,var(--indigo),var(--indigo2)); color:#fff;
-  font-size:10px; font-weight:800; letter-spacing:.03em}
-.fcat,.pcat{display:inline-block; padding:3px 9px; border-radius:99px;
-  background:var(--acento-l); color:var(--acento);
-  font-size:10px; font-weight:800; white-space:nowrap}
+.precio-nuevo{font-weight:600; color:var(--good); font-variant-numeric:tabular-nums}
+.badge-mix{display:inline-block; padding:2px 8px; border-radius:99px;
+  background:var(--line2); color:var(--ink2); font-size:10.5px; font-weight:600}
+.fcat,.pcat{display:inline-block; padding:2px 9px; border-radius:99px;
+  background:var(--line2); color:var(--ink2); font-size:11px; font-weight:500; white-space:nowrap}
+.fcat{cursor:pointer; border:1px solid var(--line)}
+.fcat.active,.fcat.on{background:var(--brand); color:#fff; border-color:var(--brand)}
+
+/* Pastillas de estado: las usan los módulos nuevos. */
+.est{display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:99px;
+  font-size:11.5px; font-weight:600; white-space:nowrap; background:var(--line2); color:var(--ink2)}
+.est::before{content:''; width:6px; height:6px; border-radius:50%; background:currentColor}
+.est.bien{background:var(--good-soft); color:var(--good)}
+.est.ojo{background:var(--warn-soft); color:var(--warn)}
+.est.mal{background:var(--bad-soft); color:var(--bad)}
+.est.info{background:var(--info-soft); color:var(--info)}
+.est.neutro::before{background:var(--ink3)}
 
 /* ══ SUBIR LISTA ══════════════════════════════════════════════════ */
 .upload-zone{
-  border:2px dashed var(--acento); border-radius:var(--rad);
-  background:linear-gradient(135deg,var(--acento-l),#fff);
-  padding:40px 22px; text-align:center; cursor:pointer;
-  transition:transform .18s, box-shadow .18s;
+  border:1.5px dashed var(--brand-line); border-radius:var(--rad);
+  background:#fafcfb; padding:34px 22px; text-align:center; cursor:pointer;
+  transition:background .15s, border-color .15s;
 }
-.upload-zone:hover{transform:translateY(-2px);
-  box-shadow:0 10px 28px rgba(20,27,46,.10)}
+.upload-zone:hover,.upload-zone.over{background:var(--brand-soft); border-color:var(--brand); transform:none; box-shadow:none}
+/* El input nativo se oculta: toda la zona es el botón (y acepta arrastrar). */
+.upload-zone input[type=file]{display:none}
+.upload-zone h4{margin:0 0 6px; font-size:15px; font-weight:600; color:var(--brand)}
+.upload-zone p{margin:0; font-size:12.5px; color:var(--ink3)}
 
 /* ══ GRÁFICOS DE BARRA ════════════════════════════════════════════ */
-.chart-bar-wrap{display:flex; flex-direction:column; gap:9px}
-/* La etiqueta NO va en una columna fija. Con 150px duros, dentro de una
-   tarjeta a media pantalla quedaban 60px para la barra y el gráfico se
-   volvía ilegible: todas las barras parecían iguales.
-
-   `minmax` le da un piso y la deja ceder; el `2fr` de la barra se queda
-   siempre con la mayor parte, que es lo que hay que comparar. */
-.chart-row{
-  display:grid; grid-template-columns:minmax(84px,1.15fr) 2fr 76px;
-  gap:11px; align-items:center;
-}
-.chart-lbl{font-size:12px; color:var(--ink2); overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap}
-.chart-track{height:24px; background:var(--line2); border-radius:7px; overflow:hidden}
+.chart-bar-wrap{display:flex; flex-direction:column; gap:8px}
+.chart-row{display:grid; grid-template-columns:minmax(84px,1.15fr) 2fr 76px; gap:11px; align-items:center}
+.chart-lbl{font-size:12.5px; color:var(--ink2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.chart-track{height:20px; background:var(--line2); border-radius:4px; overflow:hidden}
 .chart-fill{
-  height:100%; border-radius:7px; display:flex; align-items:center; padding:0 10px;
-  color:#fff; font-size:11px; font-weight:800; font-variant-numeric:tabular-nums;
-  white-space:nowrap; transition:width .45s cubic-bezier(.3,.8,.3,1);
-  /* El brillo diagonal le da volumen a la barra sin cambiarle el color. */
-  background-image:linear-gradient(100deg,rgba(255,255,255,.24) 0%,transparent 46%);
-  box-shadow:0 1px 5px rgba(20,27,46,.16);
+  height:100%; border-radius:4px; display:flex; align-items:center; padding:0 8px;
+  color:#fff; font-size:11px; font-weight:600; font-variant-numeric:tabular-nums;
+  white-space:nowrap; transition:width .35s ease-out; background-image:none; box-shadow:none;
 }
-.chart-val{font-size:12px; font-weight:800; text-align:right;
-  font-variant-numeric:tabular-nums; color:var(--ink2)}
+.chart-val{font-size:12.5px; font-weight:600; text-align:right; font-variant-numeric:tabular-nums; color:var(--ink)}
 
 /* ══ ALERTAS ══════════════════════════════════════════════════════ */
 .alert-item{
-  display:flex; align-items:center; gap:13px; padding:13px 15px;
-  border-radius:var(--rad-s); margin-bottom:9px; border:1px solid var(--line);
-  background:var(--paper); transition:transform .16s;
+  display:flex; align-items:center; gap:12px; padding:12px 14px;
+  border-radius:var(--rad-s); margin-bottom:8px; border:1px solid var(--line);
+  background:var(--paper);
 }
-.alert-item:hover{transform:translateX(3px)}
-.alert-item.critico{background:linear-gradient(100deg,var(--rojo-l),#fff);
-  border-color:#f6cfcf; border-left:4px solid var(--rojo)}
-.alert-item.bajo{background:linear-gradient(100deg,var(--ambar-l),#fff);
-  border-color:#f7e0bd; border-left:4px solid var(--ambar2)}
-.alert-icon{font-size:16px; flex:none}
+.alert-item:hover{transform:none}
+.alert-item.critico{background:var(--paper); border-color:#f0c8c3; box-shadow:inset 3px 0 0 var(--bad)}
+.alert-item.bajo{background:var(--paper); border-color:#ecd5ad; box-shadow:inset 3px 0 0 var(--warn)}
+.alert-icon{font-size:15px; flex:none}
 .alert-txt{flex:1; min-width:0}
-.alert-txt h4{margin:0; font-size:13px; font-weight:800}
-.alert-txt p{margin:2px 0 0; font-size:11.5px; color:var(--ink2)}
-.alert-accion{font-size:11.5px; font-weight:800; color:var(--acento);
-  cursor:pointer; white-space:nowrap}
+.alert-txt h4{margin:0; font-size:13.5px; font-weight:600}
+.alert-txt p{margin:2px 0 0; font-size:12px; color:var(--ink2)}
+.alert-accion{font-size:12px; font-weight:600; color:var(--brand); cursor:pointer; white-space:nowrap}
 .alert-accion:hover{text-decoration:underline}
 
 /* ══ OBJETIVOS DE VENDEDOR ════════════════════════════════════════ */
 .obj-bar-wrap{margin-top:11px}
-.obj-bar-hdr{display:flex; justify-content:space-between; font-size:11.5px;
+.obj-bar-hdr{display:flex; justify-content:space-between; font-size:12px;
   color:var(--ink2); margin-bottom:6px; font-variant-numeric:tabular-nums}
-.obj-track{height:9px; background:var(--line2); border-radius:5px; overflow:hidden}
-.obj-fill{height:100%; border-radius:5px; transition:width .45s cubic-bezier(.3,.8,.3,1);
-  background:linear-gradient(90deg,var(--verde),var(--verde2))}
+.obj-track{height:8px; background:var(--line2); border-radius:4px; overflow:hidden}
+.obj-fill{height:100%; border-radius:4px; transition:width .35s ease-out; background:var(--good)}
 .obj-inputs{display:flex; gap:10px; margin-top:11px; flex-wrap:wrap}
 .obj-inp-g{flex:1; min-width:112px}
-.obj-inp-g label{display:block; font-size:10.5px; font-weight:800; letter-spacing:.05em;
+.obj-inp-g label{display:block; font-size:11px; font-weight:600; letter-spacing:.05em;
   text-transform:uppercase; color:var(--ink3); margin-bottom:4px}
-.obj-plus-badge{display:inline-block; padding:3px 9px; border-radius:99px;
-  background:linear-gradient(135deg,var(--verde),var(--verde2)); color:#fff;
-  font-size:10.5px; font-weight:800}
+.obj-plus-badge{display:inline-block; padding:2px 9px; border-radius:99px;
+  background:var(--good-soft); color:var(--good); font-size:11px; font-weight:600}
 
 /* ══ VENDEDORES ═══════════════════════════════════════════════════ */
 .vendor-card{
   position:relative; overflow:hidden; background:var(--paper);
   border:1px solid var(--line); border-radius:var(--rad);
-  padding:17px; margin-bottom:12px; box-shadow:var(--sombra);
-  transition:transform .18s, box-shadow .18s;
+  padding:16px; margin-bottom:12px; box-shadow:var(--sombra);
 }
-.vendor-card::before{
-  content:''; position:absolute; left:0; top:0; bottom:0; width:4px;
-  background:linear-gradient(180deg,var(--ambar2),var(--ambar));
-}
-.vendor-card:hover{transform:translateY(-2px); box-shadow:0 10px 26px rgba(20,27,46,.09)}
-.vendor-info{display:flex; align-items:center; gap:14px}
+.vendor-card::before{content:none}
+.vendor-card:hover{transform:none; box-shadow:var(--sombra)}
+.vendor-card{display:flex; gap:14px; align-items:flex-start}
+.vendor-info{display:block; min-width:0}
+.vendor-info h3{margin:0; font-size:16px; font-weight:600; color:var(--ink)}
+.vendor-info > p{margin:1px 0 0; font-size:12.5px; color:var(--ink3)}
+.vstat span{display:block; font-size:19px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums}
+.vstat small{font-size:11.5px; color:var(--ink3)}
+.vendor-stats{margin-top:10px}
 .vendor-av{
-  width:46px; height:46px; border-radius:14px; flex:none; color:#fff;
-  background:linear-gradient(135deg,var(--ambar),var(--ambar2));
-  display:grid; place-items:center; font-size:16px; font-weight:800;
-  box-shadow:0 4px 12px rgba(217,119,6,.30);
+  width:42px; height:42px; border-radius:50%; flex:none;
+  background:var(--brand-soft); color:var(--brand); box-shadow:none;
+  display:grid; place-items:center; font-size:15px; font-weight:600;
 }
-.vendor-stats{display:flex; gap:24px; flex-wrap:wrap; margin-top:13px;
-  padding-top:13px; border-top:1px solid var(--line2)}
-.vstat{font-size:12px; color:var(--ink2)}
-.vstat b{display:block; font-size:18px; font-weight:800; color:var(--ink);
-  font-variant-numeric:tabular-nums}
+.vendor-stats{display:flex; gap:26px; flex-wrap:wrap; margin-top:13px; padding-top:13px; border-top:1px solid var(--line2)}
+.vstat{font-size:12px; color:var(--ink3)}
+.vstat b{display:block; font-size:19px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums}
+
+/* ══ COMPRAS ══════════════════════════════════════════════════════
+   El módulo de compras pone sus bloques directo en la tarjeta, sin
+   `.card-body`: sin esto los campos quedan pegados al borde. */
+.qrc-card > .qrc-cfg,.qrc-card > .qrc-rubros,.qrc-card > .qrc-acc,.qrc-card > .qrc-nota{padding-left:18px; padding-right:18px}
+.qrc-card > .qrc-cfg{padding-top:14px}
+.qrc-card > .qrc-acc{padding-bottom:18px}
+.qrc-card > .qrc-nota{padding-bottom:16px}
 
 /* ══ TOAST ════════════════════════════════════════════════════════ */
 .toast{
   position:fixed; bottom:26px; left:50%; transform:translateX(-50%) translateY(90px);
-  background:linear-gradient(135deg,#141b2e,#28324f); color:#fff;
-  padding:13px 22px; border-radius:var(--rad-s); font-size:13px; font-weight:700;
+  background:var(--ink); color:#fff;
+  padding:12px 20px; border-radius:var(--rad-s); font-size:13.5px; font-weight:500;
   box-shadow:var(--sombra-2); opacity:0; z-index:9999; pointer-events:none;
-  transition:.3s cubic-bezier(.2,.7,.3,1);
+  transition:.25s ease-out;
 }
 .toast.active{opacity:1; transform:translateX(-50%) translateY(0)}
 
@@ -447,26 +382,25 @@ td[align=right]{text-align:right; font-variant-numeric:tabular-nums}
 .mobile-nav{display:none}
 @media(max-width:900px){
   .sidebar{display:none}
-  .content{padding:16px 14px 88px}
-  .top-header{padding:0 14px; gap:10px}
-  .top-header h2{font-size:15px}
+  .content{padding:14px 14px 88px}
+  .top-header{padding:0 14px; gap:10px; height:56px}
+  .top-header h2{font-size:16px}
   .mobile-nav{
     display:flex; position:fixed; bottom:0; left:0; right:0; z-index:60;
-    background:rgba(255,255,255,.92); backdrop-filter:blur(14px);
-    border-top:1px solid var(--line);
-    padding:7px 4px calc(7px + env(safe-area-inset-bottom)); overflow-x:auto;
+    background:#fff; border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom)); overflow-x:auto;
   }
   .mnav-item{
-    flex:1; min-width:66px; display:flex; flex-direction:column; align-items:center; gap:3px;
+    flex:1; min-width:64px; display:flex; flex-direction:column; align-items:center; gap:2px;
     padding:6px 2px; border-radius:var(--rad-s); cursor:pointer;
-    font-size:10px; font-weight:700; color:var(--ink3); white-space:nowrap;
+    font-size:10.5px; font-weight:500; color:var(--ink3); white-space:nowrap;
   }
-  .mnav-item.active{color:#fff; background:linear-gradient(135deg,var(--acento),var(--acento2))}
+  .mnav-item.active{color:var(--brand); background:var(--brand-soft); font-weight:600}
   .mnav-icon{font-size:17px}
   .chart-row{grid-template-columns:108px 1fr 74px; gap:8px}
+  .kpi-val{font-size:24px}
 }
 
-/* Quien prefiere menos movimiento, lo tiene. */
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms !important; transition-duration:.01ms !important}
 }
@@ -1194,7 +1128,7 @@ function renderVendedores(){
   const totalVentas=vends.reduce((a,v)=>a+v.ventas,0);
   const totalCom=vends.reduce((a,v)=>a+(v.ventas*v.comision/100),0);
   document.getElementById('kpi-vendedores').innerHTML=
-    '<div class="kpi"><div class="kpi-val">'+VENDEDORES_LISTA.length+'</div><div class="kpi-lbl">Vendedores activos</div></div>'+
+    '<div class="kpi"><div class="kpi-val">'+(window.Vendedores && Vendedores._leer ? Vendedores._leer().filter(v=>v.activo!==false).length : VENDEDORES_LISTA.length)+'</div><div class="kpi-lbl">Vendedores activos</div></div>'+
     '<div class="kpi"><div class="kpi-val">'+fmt(totalVentas)+'</div><div class="kpi-lbl">Ventas totales ciclo</div></div>'+
     '<div class="kpi amber"><div class="kpi-val">'+fmt(totalCom)+'</div><div class="kpi-lbl">Comisiones a pagar</div></div>'+
     '<div class="kpi violet"><div class="kpi-val">'+(ci+' al '+cf)+'</div><div class="kpi-lbl">Ciclo actual</div></div>';
@@ -1675,6 +1609,16 @@ renderCatKPIs();
         actualizado: ahora,
         margenOverride: viejo ? viejo.margenOverride : undefined,
       });
+      /* El precio que trae la lista se calculó con el margen GENERAL. Un
+         artículo con margen propio (o de su sección) tiene que salir con
+         el suyo, si no la lista nueva le pisa el precio sin avisar. */
+      const general = typeof opts.margen === "number" ? opts.margen
+        : (global.Precio ? Precio.config().margenObjetivo : undefined);
+      if (typeof general === "number" && cat[p.ean].costoNeto > 0) {
+        const nuevo = cat[p.ean];
+        nuevo.precioUnit = Math.round(precioVenta(nuevo.costoNeto, margenDe(nuevo, general)) * 100) / 100;
+        nuevo.precioBulto = Math.round(nuevo.precioUnit * (nuevo.uc || 1) * 100) / 100;
+      }
     }
 
     /* Los que ya no vienen en la lista se desactivan, no se borran:
@@ -3971,7 +3915,13 @@ renderCatKPIs();
   const ofertaDe = r => window.Ofertas ? Ofertas.para(keyDe(r.p)) : null;
 
   /* ── Guardar ───────────────────────────────────────────────────── */
+  /* Cambios hechos acá que todavía no se publicaron. Si otro equipo
+     publicó en el medio, se trae lo suyo y se vuelven a aplicar ESTOS
+     encima: así ninguno de los dos pisa al otro. */
+  const pendientes = [];
+
   function tocar(p, cambio) {
+    pendientes.push({ eans: eansDe(p), cambio });
     const cat = Catalogo._leer();
     for (const ean of eansDe(p)) {
       const f = cat[ean];
@@ -3991,11 +3941,12 @@ renderCatKPIs();
     const p = CATALOGO[i];
     const v = String(valor).trim().replace(",", ".");
     if (v === "") return aaSoltar(i);
-    const m = Number(v) / 100;
+    const m = Number(v.replace(/[%\s]/g, "")) / 100;
     if (!(m >= 0 && m + impuestos() < 0.9)) {
       toastA("El margen tiene que estar entre 0% y " + Math.floor((0.9 - impuestos()) * 100) + "%");
       return pintarTodo();
     }
+    if (!confirmarRaro(p, m)) return pintarTodo();
     tocar(p, f => { f.margenOverride = m; });
     pintarTodo(i);
   };
@@ -4003,13 +3954,24 @@ renderCatKPIs();
   window.aaUtilidad = function (i, valor) {
     const p = CATALOGO[i];
     const r = fila(p);
-    const U = Number(String(valor).trim().replace(/\./g, "").replace(",", "."));
+    const U = Number(String(valor).trim().replace(/[$\s]/g, "").replace(/\./g, "").replace(",", "."));
     if (!r || !(U >= 0)) { toastA("Escribí la utilidad en pesos por unidad"); return pintarTodo(); }
     const m = U * (1 - impuestos()) / (r.costo + U);
     if (!(m + impuestos() < 0.9)) { toastA("Esa utilidad es demasiado alta para el costo"); return pintarTodo(); }
+    if (!confirmarRaro(p, m)) return pintarTodo();
     tocar(p, f => { f.margenOverride = Math.round(m * 10000) / 10000; });
     pintarTodo(i);
   };
+
+  /* Un margen muy bajo o muy alto casi siempre es un error de tipeo:
+     «0,3» queriendo decir 30%, o un cero de más. Se pregunta antes. */
+  function confirmarRaro(p, m) {
+    if (m >= 0.05 && m <= 0.6) return true;
+    const pv = Catalogo.precioVenta((fila(p) || {}).costo || 0, m);
+    return confirm(p.nombre + "\n\nMargen " + pct1(m) + " → precio final " + money(pv) + " por unidad.\n\n" +
+      (m < 0.05 ? "Es un margen muy bajo: casi no deja ganancia." : "Es un margen muy alto: puede quedar fuera de precio.") +
+      "\n¿Es correcto?");
+  }
 
   window.aaSoltar = function (i) {
     tocar(CATALOGO[i], f => { delete f.margenOverride; });
@@ -4018,11 +3980,12 @@ renderCatKPIs();
 
   window.aaVto = function (i, valor) {
     const v = String(valor || "").trim();
+    if (v && diasA(v) < -365 && !confirm("¿Venció hace más de un año (" + v + ")? Revisá el año.")) return pintarTodo();
+    if (v && diasA(v) > 365 * 5 && !confirm("¿Vence dentro de más de 5 años (" + v + ")? Revisá el año.")) return pintarTodo();
+    const cambio = f => { if (v) f.fechaVto = v; else delete f.fechaVto; };
+    pendientes.push({ eans: eansDe(CATALOGO[i]), cambio, sinPrecio: true });
     const cat = Catalogo._leer();
-    for (const ean of eansDe(CATALOGO[i])) {
-      if (!cat[ean]) continue;
-      if (v) cat[ean].fechaVto = v; else delete cat[ean].fechaVto;
-    }
+    for (const ean of eansDe(CATALOGO[i])) if (cat[ean]) cambio(cat[ean]);
     Catalogo._guardar(cat);
     publicarPronto();
     pintarTodo(i);
@@ -4069,16 +4032,70 @@ renderCatKPIs();
     clearTimeout(timer);
     pintarEstado("pend", "Guardando…");
     timer = setTimeout(async () => {
+      timer = null;
       pintarEstado("pend", "Publicando…");
+      const ops = pendientes.splice(0);
       try {
+        /* ¿Publicó otro equipo mientras tanto? Se trae y se combinan. */
+        const r = await Catalogo.traer().catch(() => ({}));
+        if (r && r.estado === "actualizado" && ops.length) {
+          reaplicar(ops);
+          toastA("Otro equipo había cambiado precios: se combinaron con los tuyos");
+        }
         await Catalogo.publicar();
         const h = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
         pintarEstado("ok", "Publicado " + h + " · el vendedor lo ve en menos de 1 minuto");
       } catch (e) {
+        pendientes.unshift(...ops);   // quedan para el próximo intento
         pintarEstado("err", "No se pudo publicar: " + (e.message || e) + ". Tocá para reintentar");
       }
-    }, 900);
+      if (window.avRevisar) avRevisar();
+    }, 1200);
   }
+
+  function reaplicar(ops) {
+    const cat = Catalogo._leer();
+    let todo = false;
+    for (const op of ops) {
+      if (op.todo) { todo = true; continue; }
+      for (const ean of op.eans) {
+        const f = cat[ean]; if (!f) continue;
+        op.cambio(f);
+        if (!op.sinPrecio) {
+          f.precioUnit = r2(Catalogo.precioVenta(f.costoNeto, Catalogo.margenDe(f, general())));
+          f.precioBulto = r2(f.precioUnit * (f.uc || 1));
+        }
+      }
+    }
+    Catalogo._guardar(cat);
+    if (todo) Catalogo.recalcularMargen(general());
+    alinear();
+    pintarTodo();
+  }
+
+  /* La tabla vieja lee el array embebido: se lo pone al día con el catálogo. */
+  function alinear() {
+    const cat = Catalogo._leer();
+    for (const p of CATALOGO) {
+      const ref = cat[eanRef(p)];
+      if (ref && ref.precioUnit > 0) { p.precioUnit = ref.precioUnit; p.precioBulto = r2(ref.precioUnit * p.uc); }
+    }
+  }
+
+  /* Con el admin abierto en dos equipos (la PC y el celular), lo que se
+     cambia en uno aparece en el otro sin recargar. Pregunta barata
+     (/api/version) cada minuto y al volver a la ventana. */
+  function sincronizar() {
+    if (document.hidden || pendientes.length || timer) return;
+    Catalogo.traer().then(r => {
+      if (!r || r.estado !== "actualizado") return;
+      alinear(); pintarTodo();
+      if (window.vtRepintar) vtRepintar();
+      toastA("Precios actualizados desde otro equipo");
+    }).catch(() => {});
+  }
+  setInterval(sincronizar, 60000);
+  document.addEventListener("visibilitychange", sincronizar);
   window.aaPublicar = publicarPronto;
 
   function pintarEstado(t, txt) {
@@ -4199,10 +4216,25 @@ renderCatKPIs();
       .filter(x => !q || (x.r.p.nombre + " " + x.r.p.marca).toLowerCase().includes(q))
       .filter(x => !soloVencen || (diasA(x.r.vto) !== null && diasA(x.r.vto) <= 30));
     if (soloVencen) items.sort((a, b) => diasA(a.r.vto) - diasA(b.r.vto));
-    caja.innerHTML = items.length
-      ? items.map(x => filaHTML(x.r, x.i)).join("")
-      : `<div class="aa-vacio">${soloVencen ? "No hay artículos que venzan en los próximos 30 días." : "Ningún artículo coincide."}</div>`;
+
+    /* De entrada se ven solo los que piden algo (vencen, margen propio o
+       margen bajo): 58 filas abiertas no se recorren un día cansado. El
+       buscador y «Ver todos» siempre llegan a cualquiera. */
+    const g = general();
+    const llama = x => { const d = diasA(x.r.vto); return x.r.propio || x.r.m < g - 0.05 || (d !== null && d <= 30); };
+    const resumido = !q && !soloVencen && !verTodos;
+    const vis = resumido ? items.filter(llama) : items;
+    const resto = items.length - vis.length;
+    caja.innerHTML = (vis.length
+      ? (resumido ? `<div class="aa-nota">Se muestran los ${vis.length} que tienen algo para mirar (vencimiento, margen propio o margen bajo).</div>` : "") +
+        vis.map(x => filaHTML(x.r, x.i)).join("")
+      : `<div class="aa-vacio">${soloVencen ? "No hay artículos que venzan en los próximos 30 días." :
+          resumido ? "Ningún artículo necesita atención: todos siguen el margen de su sección y no hay vencimientos cerca." : "Ningún artículo coincide."}</div>`) +
+      (resumido && resto ? `<button type="button" class="aa-todos" onclick="aaVerTodos(true)">Ver los ${items.length} artículos para editar margen o vencimiento</button>`
+        : verTodos && !q && !soloVencen ? `<button type="button" class="aa-todos" onclick="aaVerTodos(false)">Mostrar solo los que tienen algo para mirar</button>` : "");
   }
+  let verTodos = false;
+  window.aaVerTodos = v => { verTodos = v; pintarLista(); };
 
   function pintarAviso(fs) {
     const vence = fs.filter(r => { const d = diasA(r.vto); return d !== null && d <= 30; });
@@ -4229,8 +4261,12 @@ renderCatKPIs();
     pintarLista();
     pintarAviso(fs);
     if (window.qrRubrosPintar) try { qrRubrosPintar(); } catch (e) {}
+    if (window.avRevisar) try { avRevisar(); } catch (e) {}
   }
   window.aaPintar = pintarTodo;
+  /* Los avisos y la tabla del Catálogo usan las mismas cuentas: una sola
+     fuente, así un número no puede decir una cosa acá y otra allá. */
+  window.aaDatos = { filas: () => listo() ? filas() : [], diasA, ofertaDe, general, eanRef, keyDe };
 
   /* ── Montaje ───────────────────────────────────────────────────── */
   function montar() {
@@ -4248,6 +4284,9 @@ renderCatKPIs();
       </div>
       <div class="card-body"><div id="aaMonitor"></div></div>`;
     panel.insertBefore(mon, panel.firstChild);
+    /* Subir la lista es lo que más se hace acá: va arriba, debajo del resumen. */
+    const up = $("upload-zone") && $("upload-zone").closest(".card");
+    if (up && up.parentNode === panel) panel.insertBefore(up, mon.nextSibling);
 
     const art = document.createElement("div");
     art.className = "card"; art.id = "aaArticulos";
@@ -4287,7 +4326,7 @@ renderCatKPIs();
       const nuevo = function () {
         const antes = JSON.stringify(Catalogo._leer());
         const r = orig.apply(this, arguments);
-        if (JSON.stringify(Catalogo._leer()) !== antes) { publicarPronto(); pintarTodo(); }
+        if (JSON.stringify(Catalogo._leer()) !== antes) { pendientes.push({ todo: true }); publicarPronto(); pintarTodo(); }
         return r;
       };
       nuevo._aa = true;
@@ -4314,27 +4353,27 @@ renderCatKPIs();
   st.textContent = `
     .aa-hdr{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap }
     .aa-hdr p{ max-width:62ch }
-    .aa-estado{ font-size:11px; font-weight:700; padding:4px 10px; border-radius:99px;
+    .aa-estado{ font-size:11.5px; font-weight:600; padding:4px 10px; border-radius:99px;
       background:#f1f5f9; color:#64748b; white-space:nowrap }
     .aa-estado:empty{ display:none }
-    .aa-estado.ok{ background:#dcfce7; color:#166534 }
-    .aa-estado.pend{ background:#fef9c3; color:#854d0e }
-    .aa-estado.err{ background:#fee2e2; color:#991b1b; cursor:pointer; white-space:normal }
+    .aa-estado.ok{ background:var(--good-soft); color:var(--good) }
+    .aa-estado.pend{ background:var(--warn-soft); color:var(--warn) }
+    .aa-estado.err{ background:var(--bad-soft); color:var(--bad); cursor:pointer; white-space:normal }
 
     .aa-kpis{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px }
-    .aa-kpi{ background:#f8fafc; border:1px solid #eef2f7; border-radius:11px; padding:11px 13px; min-width:0 }
-    .aa-kpi.grande{ grid-column:span 2; background:#f0fdf4; border-color:#bbf7d0 }
-    .aa-kpi span{ display:block; font-size:10px; font-weight:800; letter-spacing:.05em;
-      text-transform:uppercase; color:#64748b }
-    .aa-kpi b{ display:block; font-size:19px; font-weight:800; color:#0f172a;
+    .aa-kpi{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 14px; min-width:0 }
+    .aa-kpi.grande{ grid-column:span 2 }
+    .aa-kpi span{ display:block; font-size:11px; font-weight:600; letter-spacing:.06em;
+      text-transform:uppercase; color:var(--ink3) }
+    .aa-kpi b{ display:block; font-size:20px; font-weight:600; color:var(--ink);
       font-variant-numeric:tabular-nums; margin-top:2px }
-    .aa-kpi.grande b{ font-size:26px; color:#0e6b3e }
-    .aa-kpi b.baja{ color:#b45309 } .aa-kpi b.sube{ color:#047857 }
+    .aa-kpi.grande b{ font-size:30px }
+    .aa-kpi b.baja{ color:var(--warn) } .aa-kpi b.sube{ color:var(--good) }
     .aa-kpi b small{ font-size:12px; font-weight:700; color:#64748b }
-    .aa-kpi i{ display:block; font-style:normal; font-size:11px; color:#94a3b8;
+    .aa-kpi i{ display:block; font-style:normal; font-size:12px; color:var(--ink3);
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-    .aa-kpi.alerta{ background:#fffbeb; border-color:#fcd34d; cursor:pointer }
-    .aa-kpi.alerta b{ color:#b45309 } .aa-kpi.alerta i{ color:#b45309; font-weight:700 }
+    .aa-kpi.alerta{ box-shadow:inset 3px 0 0 var(--warn); cursor:pointer }
+    .aa-kpi.alerta b{ color:var(--warn) } .aa-kpi.alerta i{ color:var(--warn); font-weight:600 }
 
     .aa-filtros{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px }
     .aa-filtros input[type=search]{ flex:1; min-width:180px; padding:9px 12px; border:1px solid #e2e8f0;
@@ -4344,20 +4383,20 @@ renderCatKPIs();
     .aa-fila{ display:grid; grid-template-columns:minmax(200px,1.6fr) 92px 108px 140px auto;
       gap:10px; align-items:center; padding:10px 12px; border:1px solid #eef2f7;
       border-radius:11px; margin-bottom:6px; background:#fff }
-    .aa-fila.propio{ border-color:#c7d2fe; background:#f8faff }
+    .aa-fila.propio{ box-shadow:inset 3px 0 0 var(--info) }
     .aa-nom{ min-width:0 }
-    .aa-nom b{ display:block; font-size:13px; font-weight:800; color:#0f172a }
+    .aa-nom b{ display:block; font-size:13.5px; font-weight:600; color:var(--ink) }
     .aa-nom i{ display:block; font-style:normal; font-size:11px; color:#64748b; margin:1px 0 3px }
-    .aa-nom i strong{ color:#0e6b3e }
+    .aa-nom i strong{ color:var(--ink) }
     .aa-in{ display:flex; flex-direction:column; gap:3px; min-width:0 }
     .aa-in span{ font-size:9.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#94a3b8 }
     .aa-in input{ width:100%; box-sizing:border-box; padding:8px 9px; border:1px solid #e2e8f0;
       border-radius:8px; font:inherit; font-size:14px; font-weight:700; color:#0f172a;
       font-variant-numeric:tabular-nums; background:#fff; min-height:38px }
-    .aa-in input:focus{ outline:2px solid #0e6b3e; outline-offset:0; border-color:transparent }
+    .aa-in input:focus{ outline:2px solid var(--brand); outline-offset:0; border-color:transparent }
     .aa-acc{ display:flex; justify-content:flex-end }
-    .aa-sec{ padding:7px 10px; border:1px solid #c7d2fe; border-radius:8px; background:#fff;
-      color:#4338ca; font:inherit; font-size:11px; font-weight:800; cursor:pointer; white-space:nowrap }
+    .aa-sec{ padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:#fff;
+      color:var(--info); font:inherit; font-size:11px; font-weight:800; cursor:pointer; white-space:nowrap }
     .aa-hereda{ font-size:10.5px; color:#94a3b8; white-space:nowrap }
 
     .aa-chip{ display:inline-block; font-size:10.5px; font-weight:800; padding:2px 8px;
@@ -4366,17 +4405,19 @@ renderCatKPIs();
     .aa-chip.rojo{ background:#fee2e2; color:#991b1b }
 
     .aa-promo{ grid-column:1/-1; display:flex; justify-content:space-between; align-items:center;
-      gap:10px; flex-wrap:wrap; padding:8px 11px; border-radius:9px; background:#fff7ed;
-      border:1px dashed #fdba74; font-size:12px; color:#7c2d12 }
+      gap:10px; flex-wrap:wrap; padding:8px 11px; border-radius:8px; background:var(--warn-soft);
+      border:1px solid #ecd5ad; font-size:12.5px; color:#6b3a05 }
     .aa-promo i{ font-style:normal; color:#9a3412; font-size:11px }
-    .aa-promo button{ padding:8px 14px; border:0; border-radius:8px; background:#ea580c; color:#fff;
+    .aa-promo button{ padding:8px 14px; border:0; border-radius:8px; background:var(--brand); color:#fff;
       font:inherit; font-size:12px; font-weight:800; cursor:pointer; min-height:36px }
     .aa-promo.ok{ background:#f0fdf4; border-color:#86efac; color:#166534; font-weight:700 }
     .aa-promo.mal{ background:#fef2f2; border-color:#fca5a5; color:#991b1b }
-    .aa-vacio{ padding:24px; text-align:center; color:#94a3b8; font-size:13px }
+    .aa-vacio{ padding:24px; text-align:center; color:var(--ink3); font-size:13.5px }
+    .aa-nota{ font-size:12.5px; color:var(--ink3); margin:0 0 8px }
+    .aa-todos{ width:100%; margin-top:6px; padding:11px; border:1px dashed var(--line); border-radius:8px; background:#fff; color:var(--brand); font:inherit; font-size:13px; font-weight:600; cursor:pointer }
+    .aa-todos:hover{ background:var(--brand-soft); border-color:var(--brand-line) }
 
-    #aaAviso{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 14px;
-      margin-bottom:14px; border-radius:12px; background:#fffbeb; border:1px solid #fcd34d; color:#78350f }
+    #aaAviso{ display:none }
     #aaAviso b{ font-size:13.5px } #aaAviso span{ font-size:12px; flex:1; min-width:160px }
     #aaAviso button{ padding:8px 14px; border:0; border-radius:8px; background:#b45309; color:#fff;
       font:inherit; font-size:12px; font-weight:800; cursor:pointer; min-height:36px }
@@ -4414,6 +4455,653 @@ renderCatKPIs();
   document.addEventListener("DOMContentLoaded", montar);
   setTimeout(montar, 1000);
   setInterval(montar, 2500);
+})();
+
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   CATÁLOGO — la tabla y los números de arriba, leídos de un vistazo
+
+   Tres cosas que la tabla vieja hacía mal para un día cansado:
+
+   1. El precio salía de una cuenta propia (margen viejo `qm_*`), no del
+      catálogo que de verdad le llega al vendedor. Podía mostrar un
+      precio que nadie cobra. Ahora muestra el publicado.
+   2. Tenía un «margen override» que no llegaba a ningún lado: el que
+      cuenta se edita en Precios. Acá se MUESTRA el margen real, con
+      color si está bajo, y un clic lleva a cambiarlo.
+   3. Stock y activo se perdían si no se apretaba «Guardar»: ahora se
+      guardan al tocarlos.
+
+   Y suma la columna de vencimiento y filtros por marca y estado.
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const pesos = n => "$" + Math.round(Number(n) || 0).toLocaleString("es-AR");
+  const pct1 = m => (Math.round(m * 1000) / 10).toLocaleString("es-AR") + "%";
+  const fechaCorta = iso => { const [y, m, d] = iso.split("-"); return d + "/" + m + "/" + y.slice(2); };
+
+  let filtroMarca = "", filtroEstado = "";
+  const listo = () => window.aaDatos && window.Catalogo && typeof CATALOGO !== "undefined";
+
+  function datosDe(p) {
+    const D = aaDatos;
+    const f = Catalogo.buscar(D.eanRef(p));
+    if (!f) return null;
+    const m = Catalogo.margenDe(f, D.general());
+    return { f, m, propio: typeof f.margenOverride === "number", dias: D.diasA(f.fechaVto || ""), vto: f.fechaVto || "" };
+  }
+
+  /* ── Fila ──────────────────────────────────────────────────────── */
+  function fila(p) {
+    const key = getKey(p), eans = getEans(p), d = datosDe(p);
+    const img = p.tipo === "familia" ? p.imagenPrincipal + ".jpg" : p.ean + ".jpg";
+    const stock = getStockProd(p);
+    const activo = eans.every(e => gActivo(e));
+    const costo = d ? d.f.costoNeto : (p.costoNeto || 0);
+    const pu = d && d.f.precioUnit ? d.f.precioUnit : p.precioUnit;
+    const g = aaDatos.general();
+
+    let margen = "—";
+    if (d) {
+      const cls = d.m < g - 0.05 ? "mal" : d.m < g - 0.005 ? "ojo" : d.propio ? "info" : "neutro";
+      margen = `<button type="button" class="vt-link" onclick="vtIrMargen('${esc(p.nombre)}')" title="Cambiar en Precios">
+        <span class="est ${cls}">${pct1(d.m)}</span></button>${d.propio ? '<small class="vt-sub">propio</small>' : ""}`;
+    }
+    let vence = '<span class="vt-nada">—</span>';
+    if (d && d.vto) {
+      const x = d.dias;
+      const cls = x < 0 ? "mal" : x <= 7 ? "mal" : x <= 30 ? "ojo" : "neutro";
+      const txt = x < 0 ? "Vencido" : x <= 30 ? "En " + x + " d" : fechaCorta(d.vto);
+      vence = `<span class="est ${cls}" title="${fechaCorta(d.vto)}">${txt}</span>`;
+    }
+    return `<tr class="${activo ? "" : "vt-inactivo"}">
+      <td><img class="tbl-img" src="${img}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"></td>
+      <td><div class="vt-nom">${esc(p.nombre)}</div><div class="vt-marca">${esc(p.marca)} · <span class="vt-cat">${esc(p.cat.toLowerCase())}</span>${p.tipo === "familia" ? " · " + p.variantes.length + " aromas" : ""}</div></td>
+      <td class="vt-num vt-gris">${pesos(costo)}</td>
+      <td class="vt-num vt-fuerte">${pesos(pu)}</td>
+      <td class="vt-num vt-gris">${pesos(pu * p.uc)}<small class="vt-sub">${p.uc} u. por caja</small></td>
+      <td>${margen}</td>
+      <td>${vence}</td>
+      <td style="text-align:center"><input type="number" class="num-inp ${stock === 0 ? "sin" : stock <= 2 ? "poco" : ""}" id="stk-${key}"
+        value="${stock}" min="0" max="9999" onchange="vtStock('${key}', this)" aria-label="Stock en cajas"></td>
+      <td style="text-align:center"><label class="toggle-sw" title="${activo ? "Lo ven los vendedores" : "Oculto para los vendedores"}">
+        <input type="checkbox" id="act-${key}" ${activo ? "checked" : ""} onchange="vtActivo('${key}', this.checked)"><span class="t-sl"></span></label></td>
+    </tr>`;
+  }
+
+  window.vtIrMargen = nombre => {
+    goTab("precios");
+    setTimeout(() => {
+      const box = $("aaArticulos"); if (!box) return;
+      const inp = box.querySelector(".aa-filtros input[type=search]");
+      if (inp) { inp.value = nombre; inp.dispatchEvent(new Event("input")); }
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
+
+  /* Se guarda al tocar: el «Guardar» de antes se olvidaba y se perdía. */
+  window.vtStock = (key, inp) => {
+    const p = CATALOGO.find(x => getKey(x) === key); if (!p) return;
+    const v = Math.max(0, Math.round(+inp.value || 0));
+    getEans(p).forEach(e => sStock(e, v));
+    inp.className = "num-inp " + (v === 0 ? "sin" : v <= 2 ? "poco" : "");
+    renderCatKPIs(); toast("Stock guardado: " + p.nombre + " · " + v + " cajas");
+  };
+  window.vtActivo = (key, on) => {
+    const p = CATALOGO.find(x => getKey(x) === key); if (!p) return;
+    getEans(p).forEach(e => localStorage.setItem("qa_" + e, on));
+    renderCatTabla(); renderCatKPIs();
+    toast(on ? p.nombre + " vuelve a verse en la app" : p.nombre + " queda oculto para los vendedores");
+  };
+
+  /* ── Filtros ───────────────────────────────────────────────────── */
+  function pasa(p) {
+    if (filtroMarca && p.marca !== filtroMarca) return false;
+    if (!filtroEstado) return true;
+    const d = datosDe(p);
+    if (filtroEstado === "activos") return getEans(p).every(e => gActivo(e));
+    if (filtroEstado === "inactivos") return !getEans(p).every(e => gActivo(e));
+    if (filtroEstado === "vencen") return d && d.dias !== null && d.dias <= 30;
+    if (filtroEstado === "sinstock") return getStockProd(p) === 0;
+    if (filtroEstado === "margen") return d && d.m < aaDatos.general() - 0.05;
+    if (filtroEstado === "propio") return d && d.propio;
+    return true;
+  }
+
+  function montarFiltros() {
+    if ($("vtMarca") || !$("cat-search")) return;
+    const marcas = [...new Set(CATALOGO.map(p => p.marca))].sort();
+    const wrap = document.createElement("div");
+    wrap.className = "vt-filtros";
+    wrap.innerHTML = `
+      <select id="vtMarca" class="form-sel" aria-label="Marca" onchange="vtFiltrar()">
+        <option value="">Todas las marcas</option>${marcas.map(m => `<option>${esc(m)}</option>`).join("")}
+      </select>
+      <select id="vtEstado" class="form-sel" aria-label="Estado" onchange="vtFiltrar()">
+        <option value="">Todos los estados</option>
+        <option value="activos">Activos</option>
+        <option value="inactivos">Ocultos para vendedores</option>
+        <option value="vencen">Vencen en ≤30 días</option>
+        <option value="margen">Margen bajo</option>
+        <option value="propio">Con margen propio</option>
+        <option value="sinstock">Sin stock</option>
+      </select>
+      <span class="vt-cuenta" id="vtCuenta"></span>`;
+    $("cat-search").after(wrap);
+  }
+  window.vtFiltrar = () => { filtroMarca = $("vtMarca").value; filtroEstado = $("vtEstado").value; renderCatTabla(); };
+
+  /* ── Reemplazos de las funciones del admin original ────────────── */
+  function instalar() {
+    if (!listo() || window.renderCatRow.__vt) return;
+
+    const thead = document.querySelector("#tab-catalogo thead tr");
+    if (thead) thead.innerHTML = `<th></th><th>Producto</th>
+      <th class="vt-num">Costo neto</th><th class="vt-num">Precio c/u</th><th class="vt-num">Precio caja</th>
+      <th>Margen</th><th>Vence</th><th style="text-align:center">Stock<br><small>cajas</small></th><th style="text-align:center">Activo</th>`;
+
+    window.renderCatRow = fila;
+    window.renderCatRow.__vt = true;
+
+    window.renderCatTabla = function () {
+      const q = ($("cat-search").value || "").toLowerCase();
+      let items = catFiltro !== "TODAS" ? CATALOGO.filter(p => p.cat === catFiltro) : CATALOGO;
+      if (q) items = items.filter(p => (p.nombre + " " + (p.marca || "")).toLowerCase().includes(q));
+      items = items.filter(pasa);
+      $("cat-tbody").innerHTML = items.length ? items.map(fila).join("")
+        : `<tr><td colspan="9" class="vt-vacio">Ningún artículo con esos filtros.</td></tr>`;
+      const c = $("vtCuenta"); if (c) c.textContent = items.length + " de " + CATALOGO.length;
+    };
+
+    window.renderCatKPIs = function () {
+      const fs = aaDatos.filas();
+      const n = CATALOGO.length;
+      const activos = CATALOGO.filter(p => getEans(p).every(e => gActivo(e))).length;
+      const g = aaDatos.general();
+      const mProm = fs.length ? fs.reduce((a, r) => a + r.m, 0) / fs.length : g;
+      const vencen = fs.filter(r => { const d = aaDatos.diasA(r.vto); return d !== null && d <= 30; }).length;
+      const urg = fs.filter(r => { const d = aaDatos.diasA(r.vto); return d !== null && d <= 7; }).length;
+      const ocultos = n - activos;
+      $("kpi-catalogo").innerHTML = `
+        <div class="kpi"><div class="kpi-lbl">Artículos en catálogo</div><div class="kpi-val">${n}</div>
+          <div class="kpi-sub">${fs.length} con precio publicado</div></div>
+        <div class="kpi ${ocultos ? "ojo" : "bien"}"><div class="kpi-lbl">Visibles para vendedores</div><div class="kpi-val">${activos}</div>
+          <div class="kpi-sub">${ocultos ? ocultos + " oculto" + (ocultos === 1 ? "" : "s") : "todos visibles"}</div></div>
+        <div class="kpi ${mProm < g - 0.005 ? "ojo" : "bien"}" onclick="goTab('precios')"><div class="kpi-lbl">Margen promedio s/venta</div>
+          <div class="kpi-val">${pct1(mProm)}</div><div class="kpi-sub">objetivo general ${pct1(g)}</div></div>
+        <div class="kpi ${urg ? "mal" : vencen ? "ojo" : "bien"}" ${vencen ? 'onclick="aaVerVencen()"' : ""}><div class="kpi-lbl">Vencen en ≤30 días</div>
+          <div class="kpi-val">${vencen}</div><div class="kpi-sub">${urg ? urg + " en 7 días o menos" : vencen ? "ver ofertas sugeridas" : "nada por vencer"}</div></div>`;
+    };
+
+    /* Ya no hacen falta: stock y activo se guardan solos. */
+    document.querySelectorAll('.top-header .btn-prim, #tab-catalogo .btn-green').forEach(b => {
+      if ((b.getAttribute("onclick") || "").includes("guardarTodo")) b.style.display = "none";
+    });
+    const h = document.querySelector("#tab-catalogo .card-hdr h3");
+    if (h) { h.textContent = "Artículos"; const p = h.nextElementSibling; if (p) p.textContent = "Lo que ven los vendedores en su app: precio publicado, margen real, vencimiento y stock. Stock y activo se guardan al tocarlos."; }
+
+    montarFiltros();
+    renderCatKPIs(); renderCatTabla();
+  }
+
+  /* Cuando cambia un precio o un vencimiento en Precios, la tabla del
+     Catálogo tiene que decir lo mismo. */
+  window.vtRepintar = () => { if (listo() && window.renderCatRow.__vt) { renderCatKPIs(); renderCatTabla(); } };
+
+  const st = document.createElement("style");
+  st.textContent = `
+    .vt-num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap }
+    .vt-gris{ color:var(--ink2) } .vt-fuerte{ font-weight:600; color:var(--ink) }
+    .vt-nom{ font-weight:600; color:var(--ink); line-height:1.3 }
+    .vt-marca{ font-size:12px; color:var(--ink3) } .vt-cat{ display:inline-block } .vt-cat::first-letter{ text-transform:uppercase }
+    .vt-sub{ display:block; font-size:10.5px; color:var(--ink3); margin-top:2px }
+    .vt-nada{ color:var(--ink3) }
+    .vt-link{ border:0; background:none; padding:0; cursor:pointer; font:inherit }
+    .vt-inactivo td{ opacity:.55 } .vt-inactivo td:last-child{ opacity:1 }
+    .vt-vacio{ text-align:center; color:var(--ink3); padding:28px !important }
+    .vt-filtros{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .vt-filtros .form-sel{ width:auto; min-width:150px; padding:8px 10px }
+    .vt-cuenta{ font-size:12.5px; color:var(--ink3); font-variant-numeric:tabular-nums }
+    #tab-catalogo .num-inp{ width:58px; text-align:center; padding:6px 4px }
+    #tab-catalogo tbody td{ padding:7px 9px }
+    #tab-catalogo thead th{ padding:9px 9px }
+    #tab-catalogo td:nth-child(2){ min-width:230px }
+    #tab-catalogo .tbl-img{ width:30px; height:30px }
+    #tab-catalogo .pcat{ text-transform:lowercase }
+    #tab-catalogo .pcat::first-letter{ text-transform:uppercase }
+    .fcat{ text-transform:lowercase } .fcat::first-letter{ text-transform:uppercase }
+    #cat-filtros .fcat{ padding:5px 12px; font-size:12px }
+    #tab-catalogo thead small{ font-weight:500; text-transform:none; letter-spacing:0 }
+  `;
+  document.head.appendChild(st);
+
+  /* ── Sobriedad: íconos de línea en el menú y títulos sin emoji ─────
+     Los emoji dependen del sistema (en Windows salen distintos que en
+     el celular) y le dan al panel un tono de chat. El menú usa íconos
+     de trazo, todos del mismo peso. */
+  const IC = {
+    catalogo: '<path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>',
+    precios: '<path d="M20 12l-8 8-9-9V3h8l9 9Z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+    ofertas: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/>',
+    analytics: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    vendedores: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
+    compras: '<path d="M2 6h11v10H2zM13 10h5l3 3v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+  };
+  const svg = p => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+  const EMOJI = /^[\p{Extended_Pictographic}️‍\s]+/u;
+  function limpiar() {
+    document.querySelectorAll(".sbnav-item, .mnav-item").forEach(it => {
+      const m = (it.getAttribute("onclick") || "").match(/goTab\('(\w+)'\)/);
+      const tab = m ? m[1] : (/compras/i.test(it.textContent) ? "compras" : "");
+      const ic = it.querySelector(".sbnav-icon, .mnav-icon");
+      if (ic && IC[tab] && !ic.dataset.vt) { ic.innerHTML = svg(IC[tab]); ic.dataset.vt = "1"; }
+    });
+    document.querySelectorAll(".kpi-val").forEach(v => v.classList.toggle("texto", /[a-záéíóú]{3,}/i.test(v.textContent)));
+    document.querySelectorAll(".card-hdr h3, .card-hdr > span:first-child, .aa-hdr h3, #header-title").forEach(h => {
+      const n = h.firstChild;
+      if (n && n.nodeType === 3 && EMOJI.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(EMOJI, "");
+    });
+  }
+  setInterval(limpiar, 1500);
+
+  document.addEventListener("DOMContentLoaded", () => setTimeout(instalar, 400));
+  setTimeout(instalar, 1300);
+  if (window.catalogoListo && window.catalogoListo.then) window.catalogoListo.then(() => setTimeout(() => { instalar(); window.vtRepintar(); }, 200));
+})();
+
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   AVISOS — lo que hay que hacer hoy, dicho en una frase
+
+   Pablo: «para días en que se presta poca atención». El admin tiene
+   seis pantallas llenas de números; un día cansado nadie las recorre.
+   Entonces el admin las recorre solo y dice, arriba de todo y en
+   castellano, qué necesita atención:
+
+     · un artículo vencido o que vence en 7 días         → urgente
+     · uno que vence en 30 días y no tiene oferta        → a mirar
+     · artículos sin stock (si hay stock real cargado)   → urgente
+     · una lista del proveedor más nueva sin aplicar     → a mirar
+     · artículos con margen muy por debajo del general   → a mirar
+     · precios de este equipo que no se publicaron       → urgente
+     · una oferta que termina hoy o mañana               → para saber
+
+   ── NOTIFICACIONES EN LA PC ──────────────────────────────────────
+   Con permiso del navegador, los avisos urgentes y «a mirar» NUEVOS
+   salen como notificación de Windows, aunque la ventana esté atrás.
+   Cada aviso se notifica una vez por día: un aviso que suena cada diez
+   minutos se termina ignorando, que es lo contrario de lo que se busca.
+
+   Ojo: funciona mientras el admin esté abierto (una pestaña fija
+   alcanza). Avisar con todo cerrado necesita un servidor de push, y
+   eso ya no entra en un plan gratuito sin vueltas.
+
+   Todo se calcula acá, en el equipo: no consulta ningún servidor, así
+   que no gasta cupo de ningún plan.
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const pct1 = m => (Math.round(m * 1000) / 10).toLocaleString("es-AR") + "%";
+  const plural = (n, s, p) => n + " " + (n === 1 ? s : (p || s + "s"));
+  const hoyISO = () => { const d = new Date(); return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  const K_NOTIF = "adm_avisos_notificados_v1";
+  const ORDEN = { mal: 0, ojo: 1, info: 2 };
+
+  /* ── Juntar los avisos ─────────────────────────────────────────── */
+  function calcular() {
+    const av = [];
+    const D = window.aaDatos;
+    if (!D || !window.Catalogo || typeof CATALOGO === "undefined") return av;
+    const fs = D.filas();
+
+    /* Vencimientos */
+    const venc = fs.map(r => ({ r, d: D.diasA(r.vto), of: D.ofertaDe(r) }))
+      .filter(x => x.d !== null && x.d <= 30);
+    const vencidos = venc.filter(x => x.d < 0);
+    const urgentes = venc.filter(x => x.d >= 0 && x.d <= 7);
+    const sinOferta = venc.filter(x => x.d > 7 && !x.of);
+    const nombres = xs => xs.slice(0, 3).map(x => x.r.p.nombre).join(", ") + (xs.length > 3 ? " y " + (xs.length - 3) + " más" : "");
+    if (vencidos.length) av.push({
+      key: "vencidos:" + vencidos.map(x => x.r.p.ean || x.r.p.familiaKey).join(","), nivel: "mal", tab: "precios",
+      titulo: plural(vencidos.length, "artículo vencido", "artículos vencidos"),
+      detalle: nombres(vencidos) + ". Sacarlos de la venta o liquidarlos.",
+      accion: "Ver", fn: () => window.aaVerVencen && aaVerVencen() });
+    if (urgentes.length) av.push({
+      key: "vence7:" + urgentes.map(x => x.r.p.ean || x.r.p.familiaKey).join(","), nivel: "mal", tab: "precios",
+      titulo: plural(urgentes.length, "artículo vence", "artículos vencen") + " en 7 días o menos",
+      detalle: nombres(urgentes) + (urgentes.some(x => !x.of) ? ". Hay oferta sugerida para sacarlos ya." : ". Ya tienen oferta."),
+      accion: "Ver ofertas sugeridas", fn: () => window.aaVerVencen && aaVerVencen() });
+    if (sinOferta.length) av.push({
+      key: "vence30:" + sinOferta.map(x => x.r.p.ean || x.r.p.familiaKey).join(","), nivel: "ojo", tab: "precios",
+      titulo: plural(sinOferta.length, "artículo vence", "artículos vencen") + " en 30 días sin oferta",
+      detalle: nombres(sinOferta) + ". Una promo ahora los saca antes del vencimiento.",
+      accion: "Ver ofertas sugeridas", fn: () => window.aaVerVencen && aaVerVencen() });
+
+    /* Stock: solo si hay stock REAL cargado (depósito). El de la tabla
+       vieja arranca en 5 para todos y avisar con eso sería mentir. */
+    if (window.Stock && Stock.todos && Stock.todos().length) {
+      const sin = CATALOGO.filter(p => {
+        const eans = p.tipo === "familia" ? p.variantes.map(v => v.ean) : [p.ean];
+        return eans.every(e => (Stock.disponible(e) || 0) <= 0);
+      });
+      if (sin.length) av.push({
+        key: "sinstock:" + sin.length, nivel: "mal", tab: "compras",
+        titulo: plural(sin.length, "artículo sin stock", "artículos sin stock"),
+        detalle: sin.slice(0, 3).map(p => p.nombre).join(", ") + (sin.length > 3 ? "…" : "") + ". El vendedor no los puede vender.",
+        accion: "Ir a Compras", fn: () => goTab("compras") });
+    }
+
+    /* Publicación */
+    const est = document.querySelector(".aa-estado.err");
+    if (est) av.push({
+      key: "publicar-error:" + hoyISO(), nivel: "mal", tab: "precios",
+      titulo: "Los últimos precios no se publicaron",
+      detalle: "Los vendedores siguen con los anteriores. Revisá la conexión y reintentá.",
+      accion: "Reintentar", fn: () => window.aaPublicar && aaPublicar() });
+
+    /* Lista más nueva del proveedor */
+    try {
+      const d = window.QrListaNueva && QrListaNueva.diferencias();
+      if (d && d.cambios.length) av.push({
+        key: "lista:" + (d.base.generado || ""), nivel: "ojo", tab: "precios",
+        titulo: "Hay una lista del proveedor más nueva",
+        detalle: plural(d.cambios.length, "costo cambia", "costos cambian") + ". Hasta aplicarla se vende con costos viejos.",
+        accion: "Ver lista", fn: () => { goTab("precios"); if (window.alnVer) alnVer(); } });
+    } catch (e) {}
+
+    /* Margen bajo: 5 puntos debajo del general. */
+    const g = D.general();
+    const bajos = fs.filter(r => r.m < g - 0.05);
+    if (bajos.length) av.push({
+      key: "margen-bajo:" + bajos.length, nivel: "ojo", tab: "precios",
+      titulo: plural(bajos.length, "artículo", "artículos") + " con margen bajo",
+      detalle: "Menos de " + pct1(g - 0.05) + " (el general es " + pct1(g) + "): " +
+        bajos.slice(0, 3).map(r => r.p.nombre + " " + pct1(r.m)).join(", ") + (bajos.length > 3 ? "…" : "") + ".",
+      accion: "Revisar", fn: () => { goTab("precios"); const b = $("aaArticulos"); if (b) b.scrollIntoView({ behavior: "smooth" }); } });
+
+    /* Ofertas que terminan */
+    if (window.Ofertas) {
+      const h = hoyISO();
+      const man = new Date(); man.setDate(man.getDate() + 1);
+      const m = man.getFullYear() + "-" + String(man.getMonth() + 1).padStart(2, "0") + "-" + String(man.getDate()).padStart(2, "0");
+      Ofertas.vigentes().filter(o => o.fin === h || o.fin === m).forEach(o => av.push({
+        key: "oferta-fin:" + o.id, nivel: "info", tab: "ofertas",
+        titulo: "La oferta de " + o.nombre + " termina " + (o.fin === h ? "hoy" : "mañana"),
+        detalle: o.pct + "% OFF. Si querés seguir, extendé la fecha.",
+        accion: "Ver ofertas", fn: () => goTab("ofertas") }));
+    }
+
+    return av.sort((a, b) => ORDEN[a.nivel] - ORDEN[b.nivel]);
+  }
+
+  let actuales = [];
+
+  /* ── Pintar ────────────────────────────────────────────────────── */
+  const ICONO = { mal: "!", ojo: "•", info: "i" };
+  function itemHTML(a, i) {
+    return `<div class="av-item ${a.nivel}">
+      <span class="av-ic" aria-hidden="true">${ICONO[a.nivel]}</span>
+      <div class="av-tx"><b>${esc(a.titulo)}</b><span>${esc(a.detalle)}</span></div>
+      <button type="button" class="av-go" onclick="avAccion(${i})">${esc(a.accion)}</button>
+    </div>`;
+  }
+  window.avAccion = i => { const a = actuales[i]; if (!a) return; cerrarPanel(); a.fn(); };
+
+  function pintarHoy() {
+    const panel = $("tab-catalogo");
+    if (!panel) return;
+    let box = $("avHoy");
+    if (!box) {
+      box = document.createElement("section");
+      box.id = "avHoy"; box.className = "card";
+      panel.insertBefore(box, panel.firstChild);
+    }
+    const serios = actuales.filter(a => a.nivel !== "info");
+    const nMal = actuales.filter(a => a.nivel === "mal").length;
+    const fecha = new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
+    box.className = "card av-hoy " + (nMal ? "mal" : serios.length ? "ojo" : "bien");
+    box.innerHTML = `
+      <div class="av-hoy-h">
+        <div>
+          <h3>${!actuales.length ? "Todo en orden" : nMal ? "Hay cosas urgentes" : serios.length ? "Hay cosas para mirar" : "Para tener en cuenta"}</h3>
+          <p>${fecha.charAt(0).toUpperCase() + fecha.slice(1)} · ${
+            !actuales.length ? "No hay vencimientos, márgenes bajos ni precios sin publicar." :
+            plural(actuales.length, "aviso")}</p>
+        </div>
+        ${notifEstadoHTML()}
+      </div>
+      ${actuales.length ? `<div class="av-lista">${actuales.slice(0, 5).map(itemHTML).join("")}</div>` +
+        (actuales.length > 5 ? `<button type="button" class="av-mas" onclick="avAbrir()">Ver los ${actuales.length} avisos</button>` : "") : ""}`;
+  }
+
+  function pintarCampana() {
+    const th = document.querySelector(".top-header");
+    if (!th) return;
+    let b = $("avCampana");
+    if (!b) {
+      b = document.createElement("button");
+      b.type = "button"; b.id = "avCampana"; b.className = "av-campana";
+      b.setAttribute("aria-label", "Avisos");
+      b.onclick = () => $("avPanel").classList.contains("abierto") ? cerrarPanel() : avAbrir();
+      const ref = th.querySelector(".btn-prim");
+      th.insertBefore(b, ref || null);
+    }
+    const n = actuales.filter(a => a.nivel !== "info").length;
+    const mal = actuales.some(a => a.nivel === "mal");
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>` +
+      `<span class="av-txt">Avisos</span>` + (n ? `<i class="${mal ? "mal" : "ojo"}">${n}</i>` : "");
+  }
+
+  function pintarMenu() {
+    const por = {};
+    actuales.filter(a => a.nivel !== "info").forEach(a => {
+      por[a.tab] = por[a.tab] || { n: 0, mal: false };
+      por[a.tab].n++; if (a.nivel === "mal") por[a.tab].mal = true;
+    });
+    document.querySelectorAll(".sbnav-item").forEach(it => {
+      const m = (it.getAttribute("onclick") || "").match(/goTab\('(\w+)'\)/);
+      const tab = m ? m[1] : (it.dataset.tab || "");
+      let n = it.querySelector(".sbnav-n");
+      const d = por[tab];
+      if (!d) { if (n) n.remove(); return; }
+      if (!n) { n = document.createElement("span"); it.appendChild(n); }
+      n.className = "sbnav-n" + (d.mal ? "" : " warn"); n.textContent = d.n;
+    });
+  }
+
+  function pintarPanel() {
+    let p = $("avPanel");
+    if (!p) {
+      p = document.createElement("aside");
+      p.id = "avPanel"; p.setAttribute("aria-label", "Avisos");
+      document.body.appendChild(p);
+      const fondo = document.createElement("div");
+      fondo.id = "avFondo"; fondo.onclick = cerrarPanel;
+      document.body.appendChild(fondo);
+    }
+    p.innerHTML = `
+      <div class="av-p-h"><h3>Avisos</h3><button type="button" onclick="avCerrar()" aria-label="Cerrar">✕</button></div>
+      <div class="av-p-notif">${notifEstadoHTML(true)}</div>
+      <div class="av-p-body">${actuales.length ? actuales.map(itemHTML).join("") :
+        `<div class="av-vacio">Todo en orden. No hay nada que atender.</div>`}</div>`;
+  }
+
+  window.avAbrir = () => { pintarPanel(); $("avPanel").classList.add("abierto"); $("avFondo").classList.add("abierto"); };
+  function cerrarPanel() { const p = $("avPanel"); if (p) { p.classList.remove("abierto"); $("avFondo").classList.remove("abierto"); } }
+  window.avCerrar = cerrarPanel;
+
+  /* ── Notificaciones de Windows ─────────────────────────────────── */
+  const soporta = () => "Notification" in window;
+  function notifEstadoHTML(largo) {
+    if (!soporta()) return largo ? `<span class="av-n off">Este navegador no permite avisos en la PC.</span>` : "";
+    if (Notification.permission === "granted")
+      return `<span class="av-n on">Avisos en la PC activados</span>` +
+        (largo ? `<button type="button" class="av-n-prueba" onclick="avProbar()">Probar</button>` : "");
+    if (Notification.permission === "denied")
+      return `<span class="av-n off" title="Habilitalos desde el candado que está a la izquierda de la dirección">Avisos en la PC bloqueados${largo ? " — habilitalos desde el candado de la barra de direcciones" : ""}</span>`;
+    return `<button type="button" class="av-n-act" onclick="avActivar()">Activar avisos en esta PC</button>`;
+  }
+
+  window.avActivar = async function () {
+    if (!soporta()) return;
+    const r = await Notification.requestPermission();
+    revisar();
+    if ($("avPanel") && $("avPanel").classList.contains("abierto")) pintarPanel();
+    if (r === "granted") {
+      notificar("Avisos activados", "Te vamos a avisar acá cuando algo necesite atención.", "prueba", false);
+      notificarNuevos(true);
+    }
+  };
+  window.avProbar = () => notificar("Prueba de aviso", "Así se ven los avisos del admin de Queruclor.", "prueba", false);
+
+  function notificar(titulo, cuerpo, tag, insistente) {
+    if (!soporta() || Notification.permission !== "granted") return;
+    try {
+      const n = new Notification(titulo, { body: cuerpo, tag: "queruclor-" + tag, requireInteraction: !!insistente, icon: "logo.jpeg" });
+      n.onclick = () => { window.focus(); avAbrir(); n.close(); };
+    } catch (e) { console.warn("[avisos] no se pudo notificar", e); }
+  }
+
+  /* Una vez por día cada aviso. Se agrupan: tres notificaciones juntas
+     tapan la pantalla; una que dice «3 avisos» se lee. */
+  function notificarNuevos(forzar) {
+    if (!soporta() || Notification.permission !== "granted") return;
+    let ya = {};
+    try { ya = JSON.parse(localStorage.getItem(K_NOTIF) || "{}"); } catch (e) {}
+    const h = hoyISO();
+    for (const k of Object.keys(ya)) if (ya[k] !== h) delete ya[k];   // limpieza de días anteriores
+    const nuevos = actuales.filter(a => a.nivel !== "info" && (forzar || !ya[a.key]));
+    if (!nuevos.length) return;
+    const mal = nuevos.some(a => a.nivel === "mal");
+    if (nuevos.length === 1) notificar(nuevos[0].titulo, nuevos[0].detalle, "avisos", mal);
+    else notificar(nuevos.length + " avisos en Queruclor", nuevos.map(a => "• " + a.titulo).join("\n"), "avisos", mal);
+    nuevos.forEach(a => { ya[a.key] = h; });
+    try { localStorage.setItem(K_NOTIF, JSON.stringify(ya)); } catch (e) {}
+  }
+
+  /* ── Ciclo ─────────────────────────────────────────────────────── */
+  let pendiente = null;
+  function revisar() {
+    actuales = calcular();
+    if (window.vtRepintar) try { vtRepintar(); } catch (e) {}
+    pintarHoy(); pintarCampana(); pintarMenu();
+    if ($("avPanel") && $("avPanel").classList.contains("abierto")) pintarPanel();
+    const n = actuales.filter(a => a.nivel !== "info").length;
+    document.title = (n ? "(" + n + ") " : "") + "Queruclor · Admin";
+  }
+  /* Los módulos llaman esto en cada cambio: se agrupan en un solo
+     repintado para no recalcular diez veces por tecla. */
+  window.avRevisar = () => { clearTimeout(pendiente); pendiente = setTimeout(revisar, 250); };
+
+  /* ── El acento es la marca, siempre ────────────────────────────────
+     El código anterior teñía la página con un color por sección. Se lo
+     deja correr y después se vuelve a fijar la marca. */
+  function engancharTab() {
+    if (typeof window.goTab !== "function" || window.goTab.__av) return;
+    const orig = window.goTab;
+    const nuevo = function (tab) {
+      const r = orig.apply(this, arguments);
+      const s = document.documentElement.style;
+      ["--acento", "--acento2", "--acento-l"].forEach(v => s.removeProperty(v));
+      document.body.dataset.tab = tab;
+      cerrarPanel();
+      return r;
+    };
+    nuevo.__av = true; nuevo.__qr = true;
+    window.goTab = nuevo;
+    ["--acento", "--acento2", "--acento-l"].forEach(v => document.documentElement.style.removeProperty(v));
+  }
+
+  const st = document.createElement("style");
+  st.textContent = `
+    .av-hoy{ padding:16px 18px; }
+    .av-hoy.mal{ box-shadow:inset 4px 0 0 var(--bad) }
+    .av-hoy.ojo{ box-shadow:inset 4px 0 0 var(--warn) }
+    .av-hoy.bien{ box-shadow:inset 4px 0 0 var(--good) }
+    .av-hoy-h{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap }
+    .av-hoy-h h3{ margin:0; font-size:18px; font-weight:600; color:var(--ink) }
+    .av-hoy.mal .av-hoy-h h3{ color:var(--bad) } .av-hoy.ojo .av-hoy-h h3{ color:var(--warn) }
+    .av-hoy.bien .av-hoy-h h3{ color:var(--good) }
+    .av-hoy-h p{ margin:2px 0 0; font-size:13px; color:var(--ink3) }
+    .av-lista{ display:flex; flex-direction:column; gap:8px; margin-top:14px }
+    .av-item{ display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--line);
+      border-radius:8px; background:#fff }
+    .av-ic{ width:24px; height:24px; border-radius:50%; flex:none; display:grid; place-items:center;
+      font-size:13px; font-weight:700; color:#fff; background:var(--ink3) }
+    .av-item.mal .av-ic{ background:var(--bad) } .av-item.ojo .av-ic{ background:var(--warn) }
+    .av-item.info .av-ic{ background:var(--info) }
+    .av-tx{ flex:1; min-width:0 }
+    .av-tx b{ display:block; font-size:14px; font-weight:600; color:var(--ink) }
+    .av-tx span{ display:block; font-size:12.5px; color:var(--ink2); margin-top:1px }
+    .av-go{ flex:none; padding:8px 13px; border:1px solid var(--line); border-radius:8px; background:#fff;
+      color:var(--brand); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap; min-height:36px }
+    .av-go:hover{ border-color:var(--brand-line); background:var(--brand-soft) }
+    .av-mas{ margin-top:8px; border:0; background:none; color:var(--brand); font:inherit; font-size:13px;
+      font-weight:600; cursor:pointer; padding:4px 0 }
+
+    .av-n{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--ink3) }
+    .av-n::before{ content:''; width:7px; height:7px; border-radius:50% ; background:currentColor }
+    .av-n.on{ color:var(--good) } .av-n.off{ color:var(--warn) }
+    .av-n-act{ padding:8px 13px; border:1px solid var(--brand); border-radius:8px; background:var(--brand);
+      color:#fff; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap }
+    .av-n-prueba{ margin-left:8px; padding:4px 10px; border:1px solid var(--line); border-radius:6px;
+      background:#fff; font:inherit; font-size:12px; cursor:pointer; color:var(--ink2) }
+
+    .av-campana{ position:relative; display:inline-flex; align-items:center; gap:7px; padding:8px 12px;
+      border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink2);
+      font:inherit; font-size:13px; font-weight:600; cursor:pointer; margin-left:auto }
+    .av-campana:hover{ border-color:var(--brand-line); color:var(--brand) }
+    .av-campana i{ font-style:normal; min-width:20px; height:20px; padding:0 6px; border-radius:99px;
+      display:inline-grid; place-items:center; font-size:11px; font-weight:700; color:#fff;
+      font-variant-numeric:tabular-nums }
+    .av-campana i.mal{ background:var(--bad) } .av-campana i.ojo{ background:var(--warn) }
+    .top-header .ab-disparador{ flex:1 }
+
+    #avFondo{ position:fixed; inset:0; background:rgba(23,32,28,.28); z-index:90; display:none }
+    #avFondo.abierto{ display:block }
+    #avPanel{ position:fixed; top:0; right:0; bottom:0; width:min(400px,100vw); z-index:91; background:var(--ground);
+      box-shadow:var(--sombra-2); transform:translateX(100%); transition:transform .2s ease-out;
+      display:flex; flex-direction:column }
+    #avPanel.abierto{ transform:none }
+    .av-p-h{ display:flex; justify-content:space-between; align-items:center; padding:16px 18px;
+      background:#fff; border-bottom:1px solid var(--line) }
+    .av-p-h h3{ margin:0; font-size:17px; font-weight:600 }
+    .av-p-h button{ border:0; background:none; font-size:18px; cursor:pointer; color:var(--ink3); width:36px; height:36px }
+    .av-p-notif{ padding:12px 18px; background:#fff; border-bottom:1px solid var(--line) }
+    .av-p-body{ flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:8px }
+    .av-p-body .av-item{ flex-wrap:wrap }
+    .av-vacio{ padding:30px 10px; text-align:center; color:var(--good); font-weight:600 }
+
+    @media(max-width:900px){
+      .av-campana .av-txt{ display:none }
+      .av-campana{ padding:8px 10px; margin-left:0 }
+      .av-item{ flex-wrap:wrap } .av-go{ margin-left:36px }
+    }
+  `;
+  document.head.appendChild(st);
+
+  function iniciar() {
+    engancharTab();
+    revisar();
+  }
+  document.addEventListener("DOMContentLoaded", () => setTimeout(iniciar, 300));
+  setTimeout(iniciar, 1200);
+  if (window.catalogoListo && window.catalogoListo.then) window.catalogoListo.then(() => setTimeout(() => { revisar(); notificarNuevos(); }, 1500));
+  if (window.ofertasListas && window.ofertasListas.then) window.ofertasListas.then(() => window.avRevisar());
+  /* Cada 10 minutos se vuelve a mirar (sin red: es todo local). Así un
+     vencimiento que entra en la ventana de 7 días a la mañana avisa
+     aunque nadie haya tocado nada. */
+  setInterval(() => { revisar(); notificarNuevos(); }, 10 * 60 * 1000);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarPanel(); });
 })();
 
 </script>
