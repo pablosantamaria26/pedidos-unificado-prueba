@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script>window.QR_API_BASE="https://queruclor-prueba-api.santamariapablodaniel.workers.dev";</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Pedidos ML Pro</title>
@@ -5550,7 +5551,9 @@ body{ padding-bottom:22px; }
      una sola subida de lista y todas las apps quedan al día, sin generar
      ni recompilar nada. Si el servidor no está (por ejemplo con file://),
      se sigue con lo que haya en localStorage o con la lista embebida. */
-  const API = "/api/catalogo";
+  /* QR_API_BASE: la copia de PRUEBA (GitHub Pages) apunta a un servidor
+     aparte; en el sistema normal queda vacío y se usa /api del mismo lugar. */
+  const API = ((typeof window !== "undefined" && window.QR_API_BASE) || "") + "/api/catalogo";
 
   async function publicar() {
     const cat = leer(), m = meta();
@@ -5568,15 +5571,35 @@ body{ padding-bottom:22px; }
 
     /* Queda anotado en el meta: si no, el admin no puede distinguir
        "cargado acá" de "ya lo tiene todo el sistema". */
+    const resp = await r.json().catch(() => ({}));
+    if (resp && resp.publicado) cuerpo.publicado = resp.publicado;
     localStorage.setItem(KEY_META, JSON.stringify(
       Object.assign({}, m, { publicado: cuerpo.publicado, origen: "publicado" })));
-    return r.json();
+    return resp;
   }
 
   /* Trae el catálogo publicado si es MÁS NUEVO que el local. Nunca pisa
      algo más reciente: si el admin acaba de subir una lista en este
      equipo, no se la lleva por delante una publicación vieja. */
+
+  /* «¿Hay algo nuevo?» antes de bajar todo: /api/version es un JSON de
+     ~150 bytes con la fecha de cada colección. Así las apps pueden mirar
+     seguido sin gastar el cupo del plan gratuito bajando la lista entera
+     cada vez. Un servidor sin /api/version (el local) da 404 y se sigue
+     con la descarga completa, como siempre. */
+  async function sinCambios(col, local) {
+    const base = (typeof window !== "undefined" && window.QR_API_BASE) || "";
+    if (!local || !base) return false;
+    try {
+      const r = await fetch(base + "/api/version", { cache: "no-store" });
+      if (!r.ok) return false;
+      const v = await r.json();
+      return !!(v && v[col]) && v[col] <= local;
+    } catch (e) { return false; }
+  }
+
   async function traer() {
+    if (await sinCambios("catalogo", meta().publicado)) return { estado: "al-dia", total: cuantos() };
     let r;
     try { r = await fetch(API, { cache: "no-store" }); }
     catch (e) { return { estado: "sin-servidor" }; }
@@ -5659,7 +5682,9 @@ body{ padding-bottom:22px; }
 
   const KEY = "qofertas";                    // el que ya usaba el admin
   const KEY_META = "qr_ofertas_meta_v1";
-  const API = "/api/ofertas";
+  /* QR_API_BASE: la copia de PRUEBA (GitHub Pages) apunta a un servidor
+     aparte; en el sistema normal queda vacío y se usa /api del mismo lugar. */
+  const API = ((typeof window !== "undefined" && window.QR_API_BASE) || "") + "/api/ofertas";
 
   const leer = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } };
   const guardar = o => localStorage.setItem(KEY, JSON.stringify(o));
@@ -5715,13 +5740,33 @@ body{ padding-bottom:22px; }
       body: JSON.stringify(cuerpo),
     });
     if (!r.ok) throw new Error("el servidor rechazó la publicación (" + r.status + ")");
+    const resp = await r.json().catch(() => ({}));
+    if (resp && resp.publicado) cuerpo.publicado = resp.publicado;
     localStorage.setItem(KEY_META, JSON.stringify({ publicado: cuerpo.publicado, origen: "publicado" }));
-    return r.json();
+    return resp;
   }
 
   /* Devuelve `cambio:true` cuando lo que llegó difiere de lo que había.
      Quien llama decide qué hacer: el vendedor repinta precios y avisa. */
+
+  /* «¿Hay algo nuevo?» antes de bajar todo: /api/version es un JSON de
+     ~150 bytes con la fecha de cada colección. Así las apps pueden mirar
+     seguido sin gastar el cupo del plan gratuito bajando la lista entera
+     cada vez. Un servidor sin /api/version (el local) da 404 y se sigue
+     con la descarga completa, como siempre. */
+  async function sinCambios(col, local) {
+    const base = (typeof window !== "undefined" && window.QR_API_BASE) || "";
+    if (!local || !base) return false;
+    try {
+      const r = await fetch(base + "/api/version", { cache: "no-store" });
+      if (!r.ok) return false;
+      const v = await r.json();
+      return !!(v && v[col]) && v[col] <= local;
+    } catch (e) { return false; }
+  }
+
   async function traer() {
+    if (await sinCambios("ofertas", meta().publicado)) return { estado: "al-dia", cambio: false };
     let r;
     try { r = await fetch(API, { cache: "no-store" }); }
     catch (e) { return { estado: "sin-servidor", cambio: false }; }
@@ -6439,7 +6484,9 @@ body{ padding-bottom:22px; }
 
   const KEY = "qr_vendedores_v1";
   const KEY_META = "qr_vendedores_meta_v1";
-  const API = "/api/vendedores";
+  /* QR_API_BASE: la copia de PRUEBA (GitHub Pages) apunta a un servidor
+     aparte; en el sistema normal queda vacío y se usa /api del mismo lugar. */
+  const API = ((typeof window !== "undefined" && window.QR_API_BASE) || "") + "/api/vendedores";
 
   const INICIALES = [
     { nombre: "NAHUEL", activo: true },
@@ -6516,11 +6563,31 @@ body{ padding-bottom:22px; }
       body: JSON.stringify(cuerpo),
     });
     if (!r.ok) throw new Error("el servidor rechazó la publicación (" + r.status + ")");
+    const resp = await r.json().catch(() => ({}));
+    if (resp && resp.publicado) cuerpo.publicado = resp.publicado;
     localStorage.setItem(KEY_META, JSON.stringify({ publicado: cuerpo.publicado, origen: "publicado" }));
-    return r.json();
+    return resp;
+  }
+
+
+  /* «¿Hay algo nuevo?» antes de bajar todo: /api/version es un JSON de
+     ~150 bytes con la fecha de cada colección. Así las apps pueden mirar
+     seguido sin gastar el cupo del plan gratuito bajando la lista entera
+     cada vez. Un servidor sin /api/version (el local) da 404 y se sigue
+     con la descarga completa, como siempre. */
+  async function sinCambios(col, local) {
+    const base = (typeof window !== "undefined" && window.QR_API_BASE) || "";
+    if (!local || !base) return false;
+    try {
+      const r = await fetch(base + "/api/version", { cache: "no-store" });
+      if (!r.ok) return false;
+      const v = await r.json();
+      return !!(v && v[col]) && v[col] <= local;
+    } catch (e) { return false; }
   }
 
   async function traer() {
+    if (await sinCambios("vendedores", meta().publicado)) return { estado: "al-dia", cambio: false };
     let r;
     try { r = await fetch(API, { cache: "no-store" }); }
     catch (e) { return { estado: "sin-servidor", cambio: false }; }
@@ -7609,7 +7676,8 @@ window.QR = { irA, selVend, selCli, setCat, filtrarClientes, filtrarProd, abrirA
     var tv = document.getElementById('tb-vend'); if (tv) tv.textContent = E.vend;
   },
   abrir: function(){ if (!_montado){ _montado = true; loadOfertas(); renderTabs(); renderGrid(); } irA('scat'); updCartUI(); },
-  lineasPedido: lineasPedido
+  lineasPedido: lineasPedido,
+  itemPrecio: itemPrecio
 };
 
 /* El grid de 58 tarjetas se arma recién la 1ª vez que se abre la pestaña. */
@@ -7652,6 +7720,27 @@ if (window.catalogoListo && window.catalogoListo.then) {
     if (_montado) { renderGrid(); updCartUI(); }   // repinta si ya se abrió
   });
 }
+/* Con la app abierta también: si el admin cambia un margen, el vendedor
+   lo ve en menos de un minuto (o al volver a la app), sin recargar. */
+function qrReTraerCatalogo(){
+  if (document.hidden || !window.Catalogo || !Catalogo.traer) return;
+  Catalogo.traer().then(function(r){
+    if (!r || r.estado !== 'actualizado') return;
+    var n = sincronizarPrecios();
+    if (!n) return;
+    /* El carrito guarda el precio del momento en que se cargó: se lo
+       pone al día, o el total no coincide con la lista nueva. */
+    (E.carrito || []).forEach(function(it){
+      var p = CATALOGO.find(function(x){ return it.tipo === 'familia' ? x.familiaKey === it.familiaKey : x.ean === it.ean; });
+      if (p && p.precioBulto > 0) { it.precioUnit = p.precioUnit; it.precioBulto = p.precioBulto; }
+    });
+    persistir();
+    if (_montado) { renderGrid(); updCartUI(); }
+    if (window.showToast) showToast('Precios de Queruclor actualizados (' + n + ')', 'info');
+  }).catch(function(){});
+}
+setInterval(qrReTraerCatalogo, 60000);
+document.addEventListener('visibilitychange', qrReTraerCatalogo);
 
 /* El carrito sobrevive a un cierre de app: se persiste en cada cambio. */
 var CARRITO_KEY = 'qr_carrito_v1';
@@ -8518,6 +8607,13 @@ function abrirConfirm() {
    botones: el "Confirmar pedido" de Queruclor y el "ENVIAR PEDIDO" de arriba.
    Si alguno lo saltea, el vendedor se queda sin la pregunta cruzada. */
 window.qrPedirEnvio = function () {
+  /* Celular (UI v2): nada de preguntas cruzadas ni saltos de pantalla. Va
+     al resumen ÚNICO, que muestra las dos partes —o la que haya— con su
+     total, un «+ Agregar» para la que falte, y un solo ENVIAR. */
+  if (window.v2Activo && window.v2Activo()) {
+    try { QR.closeSheets(); } catch (e) {}   // que el carrito no quede abierto al volver
+    return window.v2IrA("resumen");
+  }
   if ($("productos").value.trim()) { switchTab("nuevo"); return setTimeout(abrirConfirm, 60); }
   confirmApp({
     titulo: "¿Sumás artículos habituales?",
@@ -8554,9 +8650,14 @@ function qrEnviarSoloQueruclor() {
   setTimeout(qrPintarResumen, 0);
 }
 
+/* Las dos salidas, para el resumen único del celular (ui-v2.js). */
+window.qrAbrirConfirm = abrirConfirm;
+window.qrEnviarSoloQueruclor = qrEnviarSoloQueruclor;
+
 $("btnEnviar").onclick = function () {
   const hayQR = QR.totalCajas() > 0;
   const hayML = !!$("productos").value.trim();
+  if (window.v2Activo && window.v2Activo()) return window.v2IrA("resumen");
 
   /* Solo Queruclor: NO se manda derecho. Va por el mismo punto único que el
      botón de Queruclor, para que la pregunta cruzada aparezca siempre. */
@@ -9052,6 +9153,14 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
     font-size:17px; font-weight:800; letter-spacing:.05em; cursor:pointer; box-shadow:0 8px 20px rgba(15,23,42,.22); }
   .v2-enviar:disabled{ opacity:.6; }
   .v2-vacio-res{ text-align:center; color:var(--v2-gris); padding:26px 10px; background:#fff; border:1px dashed var(--v2-linea); border-radius:16px; margin-bottom:12px; }
+  /* Resumen único: cada parte con su rótulo y su color (verde ML, magenta Queruclor) */
+  .v2-rsec{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:6px 2px 0; }
+  .v2-rsec b{ font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--v2-verde); }
+  .v2-rsec.qr b{ color:var(--v2-mag); }
+  .v2-rsec small{ font-size:12px; color:var(--v2-gris); }
+  .v2-redit{ border:1px solid var(--v2-mag-claro); background:#fff; color:var(--v2-mag); font:inherit; font-size:12.5px; font-weight:800; border-radius:10px; padding:6px 12px; min-height:34px; cursor:pointer; }
+  .v2-ragr{ width:100%; min-height:48px; border:1.5px dashed #9fd3b4; background:var(--v2-verde-claro); color:var(--v2-verde); font:inherit; font-size:14px; font-weight:800; border-radius:14px; cursor:pointer; }
+  .v2-ragr.qr{ border-color:#f5a8d2; background:var(--v2-mag-claro); color:var(--v2-mag); }
 
   /* ═══ QUERUCLOR: mismo sistema, en magenta y con filas ═══════ */
   body.ui2 #queruclorTab{ padding:74px 14px 0 !important; }
@@ -9687,23 +9796,73 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
         ? `<div class="v2-qty"><button type="button" data-l="${l.i}" data-d="-${paso}">−</button><span class="n">${l.cant}</span><button type="button" class="mas" data-l="${l.i}" data-d="${paso}">+</button></div>`
         : `<div class="v2-qty"><button type="button" data-l="${l.i}" data-d="x" aria-label="Quitar">✕</button></div>`;
       return `<div class="v2-lin"><div class="t"><div class="nom">${esc(nombre)}</div>${sub}</div>${ctrl}</div>`;
-    }).join("") : `<div class="v2-vacio-res">Todavía no cargaste productos.</div>`;
-    $("v2Tot").innerHTML =
-      `<div><span>${t.n} producto${t.n === 1 ? "" : "s"}</span><span></span></div>` +
-      `<div><span>Subtotal</span><span>${money(t.sub)}</span></div>` +
-      (t.pct ? `<div><span>Descuento cliente (${t.pct}%)</span><span>− ${money(t.desc)}</span></div>` : "") +
-      `<div class="grande"><span>Total aprox.</span><span>${money(t.total)}</span></div>` +
-      (t.sinPrecio ? `<small>${t.sinPrecio} renglón(es) sin precio no suman.</small>` : "");
+    }).join("") : "";
+
+    /* ── Resumen ÚNICO: las dos partes del pedido en la misma pantalla ──
+       Antes, enviar desde Queruclor saltaba a Cargar con una pregunta en
+       el medio, y desde Cargar preguntaba si había Queruclor. Ahora se ve
+       todo junto, la parte que falta tiene un «+ Agregar» que no obliga a
+       nada, y ENVIAR manda lo que haya: una parte sola o las dos. */
+    const qr = qrResumen();
+    const hayML = ls.length > 0;
+    const mlHead = `<div class="v2-rsec"><b>Artículos habituales</b>${hayML ? `<small>${t.n} producto${t.n === 1 ? "" : "s"}</small>` : ""}</div>`;
+    const mlFalta = `<button type="button" class="v2-ragr" data-agr="cargar">+ Agregar artículos habituales</button>`;
+    const qrHead = `<div class="v2-rsec qr"><b>Queruclor</b>${qr.n ? `<button type="button" class="v2-redit" data-agr="queruclor">Editar</button>` : ""}</div>`;
+    const qrFalta = `<button type="button" class="v2-ragr qr" data-agr="queruclor">+ Agregar Queruclor</button>`;
+    const qrLineas = qr.lineas.map(l =>
+      `<div class="v2-lin"><div class="t"><div class="nom">${esc(l.nombre)}</div><div class="sub">${esc(l.cant)} = <b>${money(l.importe)}</b></div></div></div>`).join("");
+
+    $("v2Lineas").innerHTML = (!hayML && !qr.n)
+      ? `<div class="v2-vacio-res">Todavía no cargaste productos.</div>${mlFalta}${qrFalta}`
+      : mlHead + (hayML ? $("v2Lineas").innerHTML : mlFalta) + qrHead + (qr.n ? qrLineas : qrFalta);
+
+    const totML = t.sub
+      ? `<div><span>Subtotal habituales</span><span>${money(t.sub)}</span></div>` +
+        (t.pct ? `<div><span>Descuento cliente (${t.pct}%)</span><span>− ${money(t.desc)}</span></div>` : "") +
+        `<div><span>Total habituales (aprox.)</span><span>${money(t.total)}</span></div>`
+      : "";
+    const totQR = qr.n ? `<div><span>Total Queruclor</span><span>${money(qr.total)}</span></div>` : "";
+    const ambos = hayML && qr.n;
+    $("v2Tot").innerHTML = totML + totQR +
+      (ambos || hayML || qr.n
+        ? `<div class="grande"><span>${ambos ? "Total del pedido" : "Total"}${hayML ? " aprox." : ""}</span><span>${money((hayML ? t.total : 0) + qr.total)}</span></div>`
+        : "") +
+      (hayML && t.sinPrecio ? `<small>${t.sinPrecio} renglón(es) sin precio no suman.</small>` : "");
+
     const bt = $("btnEnviar");
-    $("v2Enviar").textContent = (bt.querySelector("span") || {}).textContent || "ENVIAR PEDIDO";
-    $("v2Enviar").disabled = bt.disabled;
+    $("v2Enviar").textContent = ambos ? "ENVIAR PEDIDO COMPLETO" : qr.n && !hayML ? "ENVIAR SOLO QUERUCLOR" : "ENVIAR PEDIDO";
+    $("v2Enviar").disabled = bt.disabled || (!hayML && !qr.n);
   }
+
+  /* El carrito de Queruclor contado igual que en su propia barra (con
+     las ofertas que apliquen). Sin descuento del cliente: es otra lista. */
+  function qrResumen() {
+    const out = { n: 0, total: 0, lineas: [] };
+    seguro(() => {
+      const c = (window.QR && QR.getCarrito()) || [];
+      for (const it of c) {
+        if (!((it.cantidad || 0) > 0 || (it.unidades || 0) > 0)) continue;
+        const importe = QR.itemPrecio ? QR.itemPrecio(it) : (it.cantidad || 0) * (it.precioBulto || 0);
+        const cajas = Math.round((it.cantidad || 0) * 100) / 100;
+        const cant = it.unidades ? it.unidades + " un." : cajas + " caja" + (cajas === 1 ? "" : "s");
+        out.lineas.push({ nombre: it.nombre + (it.marca ? " · " + it.marca : ""), cant, importe });
+        out.total += importe; out.n++;
+      }
+    });
+    return out;
+  }
+
   function enviar() {
-    const fecha = $("fechaEntrega").value;
-    if (!$("productos").value.trim()) { toast("Agregá al menos un producto", "error"); return; }
+    const hayML = !!$("productos").value.trim();
+    const hayQR = !!(window.QR && QR.totalCajas() > 0);
+    if (!hayML && !hayQR) { toast("Agregá al menos un producto", "error"); return; }
     if (!clienteId()) { abrirCliente(); return; }
-    if (!fecha) { seguro(() => marcarCampo($("fechaEntrega"), "Falta la FECHA DE ENTREGA")); return; }
-    $("btnEnviar").click();          // todas las validaciones y el envío son los de siempre
+    if (!$("fechaEntrega").value) { seguro(() => marcarCampo($("fechaEntrega"), "Falta la FECHA DE ENTREGA")); return; }
+    /* Directo al modal de confirmación de siempre, sin preguntas cruzadas:
+       con habituales va por el envío normal (que suma Queruclor si hay);
+       solo Queruclor, por su salida propia. */
+    seguro(() => switchTab("nuevo"));
+    if (hayML) window.qrAbrirConfirm(); else window.qrEnviarSoloQueruclor();
   }
 
   /* ═══ REFRESCO (cabecera, barra de carrito, inicio) ═════════════ */
@@ -9769,7 +9928,7 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
       if ($("cvCats")) $("cvCats").style.display = foto ? "" : "none";
       if (S.p === "resumen") {
         /* Solo se redibuja si cambió algo: si no, se pierden los toques. */
-        const hash = $("productos").value + "|" + clienteId() + "|" + $("btnEnviar").disabled;
+        const hash = $("productos").value + "|" + clienteId() + "|" + $("btnEnviar").disabled + "|" + JSON.stringify(seguro(() => QR.getCarrito()) || []);
         if (hash !== S.resHash) { S.resHash = hash; pintarResumen(); }
       }
     });
@@ -9788,10 +9947,12 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
       history.back();
     };
     $("v2ResBack").onclick = () => history.back();
-    $("v2CartBtn").onclick = () => S.p === "queruclor" ? seguro(() => QR.openCart()) : abrirResumen();
+    /* Carrito y barra llevan SIEMPRE al mismo resumen único, se esté en
+       Cargar o en Queruclor: ahí se ve todo y se envía. */
+    $("v2CartBtn").onclick = () => abrirResumen();
     $("v2Bar").onclick = () => {
-      if (S.p === "queruclor") { if (QR.getCarrito().length) { seguro(() => QR.openCart()); setTimeout(refrescar, 60); } else toast("Agregá al menos un producto"); return; }
-      if (!lineas().length) { toast("Agregá al menos un producto"); return; }
+      const hayQR = !!(window.QR && QR.getCarrito().length);
+      if (!lineas().length && !hayQR) { toast("Agregá al menos un producto"); return; }
       abrirResumen();
     };
     $("v2Enviar").onclick = enviar;
@@ -9810,6 +9971,14 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
 
     /* Resumen: cantidades editables */
     $("v2Lineas").addEventListener("click", e => {
+      const ag = e.target.closest("[data-agr]");
+      if (ag) {
+        const dest = ag.dataset.agr;
+        entrarModulo(dest);
+        /* «Editar» Queruclor abre su carrito, que permite cambiar aromas y cantidades. */
+        if (dest === "queruclor" && ag.classList.contains("v2-redit")) setTimeout(() => seguro(() => QR.openCart()), 120);
+        return;
+      }
       const b = e.target.closest("[data-l]"); if (!b) return;
       const i = +b.dataset.l, ls = lineas(), l = ls.find(x => x.i === i); if (!l) return;
       if (b.dataset.d === "x") setLinea(i, 0); else setLinea(i, (l.cant || 0) + (+b.dataset.d));
@@ -9901,6 +10070,8 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
      tocar la navegación de acá adentro — cambiaba la pestaña clásica por
      debajo, invisible, y a los ojos del vendedor no pasaba nada. */
   window.v2IrA = p => { if (MQ.matches) ir(p); };
+  /* ¿Está mandando la vista de celular? (puente.js decide el envío según esto) */
+  window.v2Activo = () => MQ.matches;
   /* Mismo cálculo que ya usa la barra de carrito de Cargar (con el
      descuento del cliente si lo tiene) — puente.js lo reusa para el total
      de «artículos habituales» en el WhatsApp al cliente, para no tener
