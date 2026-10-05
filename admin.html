@@ -3613,6 +3613,29 @@ renderCatKPIs();
       fijos: arts.filter(p => typeof p.margenOverride === "number").length };
   }
 
+  /* ── Desglose: tocar el nombre de la sección abre sus artículos ──
+     Para corregir uno por uno sin salir de la sección. Se muestran los
+     de la app del vendedor (los que se venden); los demás de la lista
+     del proveedor se cuentan aparte. */
+  const abiertos = {};
+  window.qrRubroAbrir = function (rubro) { abiertos[rubro] = !abiertos[rubro]; pintar(); };
+
+  function desglose(rubro, totalSeccion) {
+    if (typeof CATALOGO === "undefined" || !window.aaFilaHTML) return "";
+    const idx = [];
+    CATALOGO.forEach((p, i) => {
+      const f = Catalogo.buscar(p.tipo === "familia" ? p.imagenPrincipal : p.ean);
+      if (f && Catalogo.rubroDe(f) === rubro) idx.push(i);
+    });
+    const enApp = idx.reduce((a, i) => a + (CATALOGO[i].tipo === "familia" ? CATALOGO[i].variantes.length : 1), 0);
+    const fuera = Math.max(0, totalSeccion - enApp);
+    return `<div class="qrr-desglose">
+      ${idx.length ? idx.map(i => aaFilaHTML(i)).join("") :
+        '<div class="qrr-vacio">Ningún artículo de esta sección está en la app del vendedor.</div>'}
+      ${fuera ? '<div class="qrr-fuera">' + fuera + ' código' + (fuera === 1 ? "" : "s") + ' más de esta sección están en la lista del proveedor pero no en la app del vendedor: toman el margen de la sección.</div>' : ""}
+    </div>`;
+  }
+
   /* ── Pintar ───────────────────────────────────────────────────── */
   function pintar() {
     const caja = $("qrRubrosBody");
@@ -3627,7 +3650,8 @@ renderCatKPIs();
       return `
         <div class="qrr-fila ${r.propio ? "propio" : ""}" data-rubro="${esc(r.rubro)}">
           <div class="qrr-nom">
-            <b>${esc(r.rubro)}</b>
+            <button type="button" class="qrr-abrir" onclick="qrRubroAbrir('${esc(r.rubro)}')" aria-expanded="${abiertos[r.rubro] ? "true" : "false"}">
+              <span class="qrr-flecha">${abiertos[r.rubro] ? "▾" : "▸"}</span><b>${esc(r.rubro)}</b></button>
             <i>${r.articulos} artículo${r.articulos === 1 ? "" : "s"}${
               hoy.fijos ? " · " + hoy.fijos + " con precio propio" : ""}</i>
           </div>
@@ -3652,7 +3676,7 @@ renderCatKPIs();
               onclick="qrRubroSoltar('${esc(r.rubro)}')"
               title="Vuelve al margen general">Al general</button>` : ""}
           </div>
-        </div>`;
+        </div>${abiertos[r.rubro] ? desglose(r.rubro, r.articulos) : ""}`;
     }).join("");
 
     const tot = filas.reduce((a, r) => {
@@ -3770,7 +3794,12 @@ renderCatKPIs();
       minmax(120px,1fr) auto; gap:12px; align-items:center;
       padding:10px 11px; border:1px solid #eef2f7; border-radius:10px; margin-bottom:6px }
     .qrr-fila.propio{ border-color:#c7d2fe; background:#f8faff }
-    .qrr-nom b{ display:block; font-size:12.5px; font-weight:800; color:#0f172a }
+    .qrr-nom b{ display:inline; font-size:13px; font-weight:600; color:var(--ink) }
+    .qrr-abrir{ border:0; background:none; padding:0; font:inherit; cursor:pointer; text-align:left; display:flex; gap:6px; align-items:baseline }
+    .qrr-abrir:hover b{ color:var(--brand); text-decoration:underline }
+    .qrr-flecha{ color:var(--ink3); width:12px; display:inline-block }
+    .qrr-desglose{ margin:-2px 0 10px 18px; padding:10px; border-left:2px solid var(--line); background:#fafbfa; border-radius:0 8px 8px 0 }
+    .qrr-vacio,.qrr-fuera{ font-size:12.5px; color:var(--ink3); padding:6px 4px }
     .qrr-nom i{ font-style:normal; font-size:10.5px; color:#94a3b8 }
 
     .qrr-ctrl{ display:flex; align-items:center; gap:9px }
@@ -3973,6 +4002,19 @@ renderCatKPIs();
       "\n¿Es correcto?");
   }
 
+  /* Utilidad sobre costo u → margen sobre venta:
+       U = costo × u   y   m = U(1 − imp) / (costo + U)   ⇒   m = u(1 − imp) / (1 + u) */
+  window.aaUtilPct = function (i, valor) {
+    const p = CATALOGO[i];
+    const u = Number(String(valor).trim().replace(/[%\s]/g, "").replace(",", ".")) / 100;
+    if (!(u >= 0)) { toastA("Escribí la utilidad en porcentaje sobre el costo"); return pintarTodo(); }
+    const m = u * (1 - impuestos()) / (1 + u);
+    if (!(m + impuestos() < 0.9)) { toastA("Esa utilidad es demasiado alta"); return pintarTodo(); }
+    if (!confirmarRaro(p, m)) return pintarTodo();
+    tocar(p, f => { f.margenOverride = Math.round(m * 10000) / 10000; });
+    pintarTodo(i);
+  };
+
   window.aaSoltar = function (i) {
     tocar(CATALOGO[i], f => { delete f.margenOverride; });
     pintarTodo(i);
@@ -4108,47 +4150,64 @@ renderCatKPIs();
   function toastA(msg) { if (window.toast) toast(msg); else alert(msg); }
 
   /* ── Pintar ────────────────────────────────────────────────────── */
+  /* Cada número dice en castellano qué significa: «23,5%» solo no le
+     dice nada a nadie un día cansado; «de cada $100 que vendés te
+     quedan $23,50» sí. */
+  const plata = n => "$" + (Math.round(n * 100) / 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function monitor(fs) {
     if (!fs.length) return "";
     const n = fs.length;
     const mProm = fs.reduce((a, r) => a + r.m, 0) / n;
+    const cProm = fs.reduce((a, r) => a + r.util / r.costo, 0) / n;
     const uProm = fs.reduce((a, r) => a + r.util, 0) / n;
     const ubProm = fs.reduce((a, r) => a + r.util * r.uc, 0) / n;
-    /* Ponderado por plata: cuánto queda de cada peso vendido si se
-       vendiera un bulto de cada uno. Lo caro pesa más, como en la caja. */
-    const pond = fs.reduce((a, r) => a + r.util * r.uc, 0) / fs.reduce((a, r) => a + r.neto * r.uc, 0);
     const orden = fs.slice().sort((a, b) => a.m - b.m);
     const bajo = orden[0], alto = orden[orden.length - 1];
+    const iguales = Math.abs(alto.m - bajo.m) < 0.0005;
     const propios = fs.filter(r => r.propio).length;
     const vence = fs.filter(r => { const d = diasA(r.vto); return d !== null && d <= 30; }).length;
     const g = general();
     const tono = mProm < g - 0.005 ? "baja" : mProm > g + 0.005 ? "sube" : "";
 
     return `
-      <div class="aa-kpis">
+      <div class="aa-kpis tres">
         <div class="aa-kpi grande">
           <span>Margen promedio sobre venta</span>
           <b class="${tono}">${pct1(mProm)}</b>
-          <i>ponderado por plata ${pct1(pond)} · general ${pct1(g)}</i>
+          <p class="aa-lee">De cada <strong>$100</strong> que cobrás (sin IVA), te quedan <strong>${plata(mProm * 100)}</strong> limpios.</p>
+          <i>Objetivo general: ${pct1(g)}</i>
         </div>
         <div class="aa-kpi grande">
-          <span>Utilidad promedio</span>
-          <b>${money(uProm)}<small> /unidad</small></b>
-          <i>${money(ubProm)} por bulto</i>
+          <span>Utilidad promedio sobre costo</span>
+          <b>${pct1(cProm)}</b>
+          <p class="aa-lee">Por cada <strong>$100</strong> que pagás de mercadería, ganás <strong>${plata(cProm * 100)}</strong>.</p>
+          <i>Es la misma ganancia, medida contra el costo</i>
+        </div>
+        <div class="aa-kpi grande">
+          <span>Utilidad promedio por unidad</span>
+          <b>${money(uProm)}</b>
+          <p class="aa-lee">Lo que te queda limpio, en promedio, por cada unidad que vendés.</p>
+          <i>Por caja: ${money(ubProm)}</i>
+        </div>
+      </div>
+      <div class="aa-kpis">
+        <div class="aa-kpi">
+          <span>Margen más bajo</span><b>${pct1(bajo.m)}</b><i>${iguales ? "todos tienen el mismo margen" : esc(bajo.p.nombre)}</i>
         </div>
         <div class="aa-kpi">
-          <span>Más bajo</span><b>${pct1(bajo.m)}</b><i>${esc(bajo.p.nombre)}</i>
+          <span>Margen más alto</span><b>${pct1(alto.m)}</b><i>${iguales ? "todos tienen el mismo margen" : esc(alto.p.nombre)}</i>
         </div>
         <div class="aa-kpi">
-          <span>Más alto</span><b>${pct1(alto.m)}</b><i>${esc(alto.p.nombre)}</i>
-        </div>
-        <div class="aa-kpi">
-          <span>Con margen propio</span><b>${propios}</b><i>de ${n} artículos</i>
+          <span>Con margen propio</span><b>${propios}</b><i>${propios ? "de " + n + " artículos" : "todos siguen a su sección"}</i>
         </div>
         <div class="aa-kpi ${vence ? "alerta" : ""}" ${vence ? 'onclick="aaVerVencen()" role="button" tabindex="0"' : ""}>
           <span>Vencen en ≤30 días</span><b>${vence}</b><i>${vence ? "ver sugerencias" : "nada por vencer"}</i>
         </div>
-      </div>`;
+      </div>
+      <p class="aa-ayuda"><strong>¿Por qué dos porcentajes?</strong> Miden la misma ganancia contra cosas distintas:
+        el <em>margen</em> contra lo que cobrás, la <em>utilidad</em> contra lo que pagaste. Un artículo que comprás a $100
+        y vendés a $130 tiene 30% de utilidad sobre costo y 23% de margen sobre venta.
+        Los proveedores y los comercios suelen hablar en utilidad; los números del negocio, en margen.</p>`;
   }
 
   let filtro = "", soloVencen = false;
@@ -4171,7 +4230,7 @@ renderCatKPIs();
     return `<span class="aa-chip">Vence ${fechaCorta(r.vto)}</span>`;
   }
 
-  function filaHTML(r, i) {
+  function filaHTML(r, i, pref) {
     const s = sugerencia(r);
     const of = ofertaDe(r);
     let promo = "";
@@ -4186,16 +4245,19 @@ renderCatKPIs();
       else promo = `<div class="aa-promo mal">No da para descuento sin perder plata: liquidar al costo o devolver al proveedor.</div>`;
     }
     return `
-      <div class="aa-fila ${r.propio ? "propio" : ""}" id="aa-f-${i}">
+      <div class="aa-fila ${r.propio ? "propio" : ""}" id="${pref || "aa-f-"}${i}">
         <div class="aa-nom">
           <b>${esc(r.p.nombre)}</b>
           <i>${esc(r.p.marca)} · costo ${money(r.costo)} · <strong>${money(r.precio)}</strong>/u final</i>
           ${chipVto(r)}
         </div>
-        <label class="aa-in"><span>Margen %</span>
+        <label class="aa-in" title="Ganancia limpia sobre lo que cobrás (sin IVA)"><span>Margen s/venta %</span>
           <input type="text" inputmode="decimal" value="${(r.m * 100).toFixed(1).replace(".", ",")}"
             onchange="aaMargen(${i}, this.value)" onkeydown="if(event.key==='Enter')this.blur()"></label>
-        <label class="aa-in"><span>Utilidad $/u</span>
+        <label class="aa-in" title="Ganancia limpia sobre lo que pagás de costo"><span>Utilidad s/costo %</span>
+          <input type="text" inputmode="decimal" value="${(r.util / r.costo * 100).toFixed(1).replace(".", ",")}"
+            onchange="aaUtilPct(${i}, this.value)" onkeydown="if(event.key==='Enter')this.blur()"></label>
+        <label class="aa-in" title="Ganancia limpia en pesos por unidad"><span>Utilidad $ por u.</span>
           <input type="text" inputmode="decimal" value="${Math.round(r.util).toLocaleString("es-AR")}"
             onchange="aaUtilidad(${i}, this.value)" onkeydown="if(event.key==='Enter')this.blur()"></label>
         <label class="aa-in"><span>Vence</span>
@@ -4264,6 +4326,8 @@ renderCatKPIs();
     if (window.avRevisar) try { avRevisar(); } catch (e) {}
   }
   window.aaPintar = pintarTodo;
+  /* La misma fila editable, para mostrarla adentro de una sección. */
+  window.aaFilaHTML = i => { const r = listo() && fila(CATALOGO[i]); return r ? filaHTML(r, i, "aar-f-") : ""; };
   /* Los avisos y la tabla del Catálogo usan las mismas cuentas: una sola
      fuente, así un número no puede decir una cosa acá y otra allá. */
   window.aaDatos = { filas: () => listo() ? filas() : [], diasA, ofertaDe, general, eanRef, keyDe };
@@ -4362,7 +4426,11 @@ renderCatKPIs();
 
     .aa-kpis{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px }
     .aa-kpi{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 14px; min-width:0 }
-    .aa-kpi.grande{ grid-column:span 2 }
+    .aa-kpis.tres{ grid-template-columns:repeat(3,minmax(0,1fr)); margin-bottom:10px }
+    .aa-lee{ margin:6px 0 4px; font-size:13px; line-height:1.45; color:var(--ink2) }
+    .aa-lee strong{ color:var(--ink); font-weight:600 }
+    .aa-ayuda{ margin:12px 2px 0; font-size:12.5px; line-height:1.55; color:var(--ink3); max-width:95ch }
+    .aa-ayuda strong{ color:var(--ink2); font-weight:600 } .aa-ayuda em{ font-style:normal; color:var(--ink2); font-weight:600 }
     .aa-kpi span{ display:block; font-size:11px; font-weight:600; letter-spacing:.06em;
       text-transform:uppercase; color:var(--ink3) }
     .aa-kpi b{ display:block; font-size:20px; font-weight:600; color:var(--ink);
@@ -4380,7 +4448,7 @@ renderCatKPIs();
       border-radius:9px; font:inherit; font-size:13px }
     .aa-filtros label{ font-size:12px; font-weight:600; color:#475569; display:flex; gap:6px; align-items:center }
 
-    .aa-fila{ display:grid; grid-template-columns:minmax(200px,1.6fr) 92px 108px 140px auto;
+    .aa-fila{ display:grid; grid-template-columns:minmax(200px,1.5fr) 112px 118px 112px 140px auto;
       gap:10px; align-items:center; padding:10px 12px; border:1px solid #eef2f7;
       border-radius:11px; margin-bottom:6px; background:#fff }
     .aa-fila.propio{ box-shadow:inset 3px 0 0 var(--info) }
@@ -4389,7 +4457,7 @@ renderCatKPIs();
     .aa-nom i{ display:block; font-style:normal; font-size:11px; color:#64748b; margin:1px 0 3px }
     .aa-nom i strong{ color:var(--ink) }
     .aa-in{ display:flex; flex-direction:column; gap:3px; min-width:0 }
-    .aa-in span{ font-size:9.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#94a3b8 }
+    .aa-in span{ font-size:9.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink3); white-space:nowrap }
     .aa-in input{ width:100%; box-sizing:border-box; padding:8px 9px; border:1px solid #e2e8f0;
       border-radius:8px; font:inherit; font-size:14px; font-weight:700; color:#0f172a;
       font-variant-numeric:tabular-nums; background:#fff; min-height:38px }
@@ -4424,9 +4492,10 @@ renderCatKPIs();
 
     @media(max-width:880px){
       .aa-kpis{ grid-template-columns:repeat(2,minmax(0,1fr)) }
+      .aa-kpis.tres{ grid-template-columns:minmax(0,1fr) }
       .aa-fila{ grid-template-columns:1fr 1fr; gap:8px }
       .aa-nom{ grid-column:1/-1 }
-      .aa-in:nth-of-type(3){ grid-column:1/2 }
+      .aa-in:nth-of-type(4){ grid-column:1/2 }
       .aa-acc{ align-self:end }
     }
     /* Celular: el admin original no estaba pensado para 360 px. La cabecera
@@ -5176,8 +5245,30 @@ renderCatKPIs();
       }
     }
 
+    /* Primero los artículos de la APP DEL VENDEDOR (los 58): son los que
+       se editan y se venden. Un aroma de una familia lleva a su familia. */
+    const enApp = new Set();
+    if (typeof CATALOGO !== "undefined") {
+      CATALOGO.forEach((p, idx) => {
+        const eans = p.tipo === "familia" ? p.variantes.map(v => v.ean) : [p.ean];
+        eans.forEach(e => enApp.add(String(e)));
+        const donde = norm(p.nombre).indexOf(t);
+        const porCodigo = eans.some(e => String(e).includes(t));
+        const porMarca = norm(p.marca).includes(t);
+        if (donde < 0 && !porCodigo && !porMarca) return;
+        const f = window.Catalogo ? Catalogo.buscar(p.tipo === "familia" ? p.imagenPrincipal : p.ean) : null;
+        out.push({
+          tipo: "articulo", idx, peso: donde === 0 ? 1.6 : (porCodigo ? 1.3 : 1.1),
+          ean: p.ean || p.imagenPrincipal, txt: p.nombre,
+          sub: [p.marca, "×" + (p.uc || 1), f && f.precioUnit ? money(f.precioUnit) + " final" : null]
+               .filter(Boolean).join("  ·  "),
+          ico: "🧴",
+        });
+      });
+    }
+
     if (window.Catalogo) {
-      const arts = Catalogo.todos();
+      const arts = Catalogo.todos().filter(p => !enApp.has(String(p.ean)));
       for (const p of arts) {
         const nom = p.nombreCompleto || p.nombre || "";
         const donde = norm(nom).indexOf(t);
@@ -5189,9 +5280,9 @@ renderCatKPIs();
           /* Lo que empieza con lo buscado va antes de lo que lo tiene en
              el medio: escribiendo "lava" se espera "LAVANDINA" arriba y
              no "AGUA LAVANDINA…" de casualidad. */
-          peso: donde === 0 ? 1.5 : (porCodigo ? 1.2 : 1),
-          ean: p.ean, txt: nom,
-          sub: [p.marca, "×" + (p.uc || 1),
+          peso: donde === 0 ? 0.9 : (porCodigo ? 0.8 : 0.7),
+          ean: p.ean, txt: nom, fuera: true,
+          sub: ["no está en la app del vendedor", p.marca, "×" + (p.uc || 1),
                 p.precioUnit ? money(p.precioUnit) + " final" : null]
                .filter(Boolean).join("  ·  "),
           ico: "🧴",
@@ -5237,8 +5328,19 @@ renderCatKPIs();
       setTimeout(() => resaltar('[data-rubro="' + r.rubro + '"]'), 220);
       return;
     }
-    /* Artículo: se va al catálogo y se lo deja filtrado y marcado, para
-       no obligar a buscarlo otra vez ahí adentro. */
+    /* Artículo de la app: se abre su ficha editable en Precios (margen,
+       utilidad, vencimiento), filtrada y marcada. Antes iba al catálogo
+       con el nombre largo de la lista del proveedor y no encontraba nada. */
+    if (typeof r.idx === "number" && window.vtIrMargen) {
+      vtIrMargen(CATALOGO[r.idx].nombre);
+      setTimeout(() => resaltar("#aa-f-" + r.idx), 260);
+      return;
+    }
+    if (r.fuera) {
+      goTab("precios");
+      if (window.toast) toast(r.txt + " está en la lista del proveedor pero no en la app del vendedor: toma el margen de su sección.");
+      return;
+    }
     goTab("catalogo");
     setTimeout(() => {
       const f = document.querySelector("#tab-catalogo .srch");
