@@ -5278,6 +5278,14 @@ body{ padding-bottom:22px; }
 
   const leer = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } };
   const guardar = c => localStorage.setItem(KEY, JSON.stringify(c));
+  /* Para consultar (buscar/todos/cuantos): memoria por contenido, igual que
+     el stock. Se devuelven copias, así nadie puede ensuciar la memoria. */
+  let memoCat = { raw: null, obj: {} };
+  const leerRO = () => {
+    const raw = localStorage.getItem(KEY);
+    if (raw !== memoCat.raw) { let o; try { o = JSON.parse(raw) || {}; } catch (e) { o = {}; } memoCat = { raw, obj: o }; }
+    return memoCat.obj;
+  };
   const meta = () => { try { return JSON.parse(localStorage.getItem(KEY_META)) || {}; } catch (e) { return {}; } };
 
   /* ── Precio de venta ──────────────────────────────────────────────
@@ -5421,9 +5429,9 @@ body{ padding-bottom:22px; }
   }
 
   /* ── Consulta: es lo que usa facturación con el EAN del pedido ── */
-  function buscar(ean) { return leer()[String(ean).trim()] || null; }
-  function todos() { return Object.values(leer()); }
-  function cuantos() { return Object.keys(leer()).length; }
+  function buscar(ean) { const f = leerRO()[String(ean).trim()]; return f ? Object.assign({}, f) : null; }
+  function todos() { return Object.values(leerRO()).map(f => Object.assign({}, f)); }
+  function cuantos() { return Object.keys(leerRO()).length; }
 
   /* ── Siembra automática desde la lista embebida ────────────────
      localStorage es POR ORIGEN: lo que se sube en el admin abierto con
@@ -5867,6 +5875,21 @@ body{ padding-bottom:22px; }
   const leer = (k, def) => { try { return JSON.parse(localStorage.getItem(k)) || def; } catch (e) { return def; } };
   const guardar = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
+  /* Lectura SOLO para consultar, con memoria: si lo guardado no cambió se
+     reusa lo ya decodificado. Cada tarjeta del vendedor pregunta el stock
+     varias veces por toque; decodificar todo el stock en cada pregunta era
+     lo que trababa la app en el celular (82 de cada 95 ms por toque).
+     Las escrituras siguen usando leer(), que devuelve una copia fresca. */
+  const memo = {};
+  const leerRO = (k, def) => {
+    const raw = localStorage.getItem(k);
+    const m = memo[k];
+    if (m && m.raw === raw) return m.obj;
+    let obj; try { obj = JSON.parse(raw) || def; } catch (e) { obj = def; }
+    memo[k] = { raw, obj };
+    return obj;
+  };
+
   const ahora = () => new Date().toISOString();
   const num = n => Math.max(0, Math.round(Number(n) || 0));
 
@@ -5875,7 +5898,7 @@ body{ padding-bottom:22px; }
      catálogo no se le puede llevar stock: no sabríamos cuántas unidades
      tiene una caja y toda la aritmética sería inventada. */
   function ucDe(ean) {
-    const fila = leer(K_STOCK, {})[String(ean)];
+    const fila = leerRO(K_STOCK, {})[String(ean)];
     if (fila && fila.uc > 0) return fila.uc;
     const ficha = global.Catalogo ? Catalogo.buscar(ean) : null;
     return (ficha && Number(ficha.uc)) || 0;
@@ -5883,7 +5906,7 @@ body{ padding-bottom:22px; }
 
   /* ── Físico ───────────────────────────────────────────────────── */
   function fisico(ean) {
-    const f = leer(K_STOCK, {})[String(ean)];
+    const f = leerRO(K_STOCK, {})[String(ean)];
     if (!f) return { cajas: 0, sueltas: 0, uc: ucDe(ean), existe: false };
     return { cajas: num(f.cajas), sueltas: num(f.sueltas), uc: f.uc || ucDe(ean), existe: true };
   }
@@ -5908,7 +5931,7 @@ body{ padding-bottom:22px; }
   const claveRes = (pedido, ean) => "p" + pedido + "|" + ean;
 
   function reservasDe(ean) {
-    const r = leer(K_RES, {});
+    const r = leerRO(K_RES, {});
     return Object.values(r).filter(x => x.ean === String(ean) && x.estado === "reservada");
   }
 
@@ -6795,13 +6818,21 @@ body{ padding-bottom:22px; }
     /* Cambiar de vendedor a mitad del día casi siempre es un error de
        dedo. Se puede, pero hay que decir que sí. */
     const yo = Vendedores.yo();
-    if (!confirm("Estás cargando pedidos como " + yo + ".\n\n" +
-      "¿Seguro que querés cambiar de vendedor? Los pedidos que envíes " +
-      "después van a salir a nombre de otra persona, y la comisión también.")) return;
-    Vendedores.setYo("");
-    const s = sel();
-    if (s) s.value = "";
-    pintar();
+    const cambiar = () => {
+      Vendedores.setYo("");
+      const s = sel();
+      if (s) s.value = "";
+      pintar();
+    };
+    /* Con el diseño de la app, no la ventana gris del navegador. */
+    if (typeof window.confirmApp === "function") {
+      return window.confirmApp({
+        titulo: "¿Cambiar de vendedor?",
+        mensaje: "Estás cargando pedidos como <b>" + yo + "</b>. Los pedidos que envíes después van a salir a nombre de otra persona, y la comisión también.",
+        si: "SÍ, CAMBIAR", no: "NO, DEJAR",
+      }, cambiar);
+    }
+    if (confirm("Estás cargando pedidos como " + yo + ".\n\n¿Seguro que querés cambiar de vendedor?")) cambiar();
   };
 
   /* ── Estilos ──────────────────────────────────────────────────── */
@@ -8285,9 +8316,7 @@ window.QR.chgSuelto = function(ean, d){
   /* Al llegar a una caja entera conviene decirlo: sale más barato y el
      depósito no tiene que abrir una caja al pedo. */
   if (nu >= p.uc && d > 0) {
-    showModal({ type:'warn', icon:'📦', title:'Eso ya es una caja entera',
-      msg:'Con ' + p.uc + ' unidades te conviene cargar una <b>caja cerrada</b>: es el mismo producto y no hay que abrir nada en el depósito.',
-      btn:'Entendido' });
+    if (window.showToast) showToast('Con ' + p.uc + ' unidades ya es una caja entera: conviene cargarla como caja cerrada.', 'info');
   }
   if (nu <= 0) E.carrito = E.carrito.filter(function(i){ return !(i.ean === ean && i.modo === 'sueltas'); });
   else { it.unidades = nu; it.cantidad = 0; }
@@ -8498,11 +8527,15 @@ function qcAccionHTML(p, o, grande) {
     }
   } else {
     var n = qcCajas(p);
+    /* Con el stock al tope el «+» se apaga y se dice por qué: antes se
+       podía tocar y saltaba una ventana de «Stock insuficiente». */
+    var tope = typeof gStock === "function" ? gStock(p.ean) : Infinity;
     if (n > 0) {
       html = '<div class="qc-step' + (grande ? " grande" : "") + '">' +
         '<button type="button" class="qc-menos" onclick="QR.chgQty(' + q + ',-1)" aria-label="Una caja menos">−</button>' +
         '<span class="qc-n"><b>' + n + '</b> caja' + (n === 1 ? "" : "s") + '</span>' +
-        '<button type="button" class="qc-mas" onclick="QR.chgQty(' + q + ',1)" aria-label="Una caja más">+</button></div>';
+        '<button type="button" class="qc-mas" onclick="QR.chgQty(' + q + ',1)" aria-label="Una caja más"' + (n >= tope ? " disabled" : "") + '>+</button></div>' +
+        (n >= tope ? '<div class="qc-tope">Es todo el stock: ' + tope + ' caja' + (tope === 1 ? "" : "s") + '</div>' : "");
     } else {
       html = '<button type="button" class="qc-agregar" onclick="QR.chgQty(' + q + ',1)" ' + (ns ? "disabled" : "") + '>' +
         (ns ? "Sin stock" : "AGREGAR <span aria-hidden=\"true\">+</span>") + '</button>';
@@ -8674,7 +8707,18 @@ updCartUI = function () { var r = _qcUpd.apply(this, arguments); try { qcRepinta
 /* chgQty / chgSuelto originales siguen haciendo la lógica (stock, carrito,
    renglón fantasma); acá solo se asegura el repintado. */
 var _qcChg = chgQty;
-chgQty = function (ean, d) { var r = _qcChg.apply(this, arguments); qcRepintar(); return r; };
+chgQty = function (ean, d) {
+  /* Sin stock para sumar: aviso corto en vez de la ventana «Stock
+     insuficiente» que había que cerrar a mano. */
+  if (d > 0 && typeof gStock === "function") {
+    var it = qcItemCajas(ean), st = gStock(ean);
+    if ((it ? it.cantidad : 0) + d > st) {
+      if (window.showToast) showToast(st ? "No hay más stock: quedan " + st + " caja" + (st === 1 ? "" : "s") : "Este artículo no tiene stock", "error");
+      return;
+    }
+  }
+  var r = _qcChg.apply(this, arguments); qcRepintar(); return r;
+};
 window.QR.chgQty = chgQty;
 if (window.QR.chgSuelto) {
   var _qcSu = window.QR.chgSuelto;
@@ -8786,7 +8830,7 @@ window.QR.promoInfo = function () {
     if (!o) return;
     var n = qcCajas(p);
     if (n > 0 && o.aplica) activas++;
-    if (o.falta && (!cerca || o.falta < cerca.falta)) cerca = { falta: o.falta, nombre: p.nombre };
+    if (o.falta && (!cerca || o.falta < cerca.falta)) cerca = { falta: o.falta, nombre: p.nombre, id: qcKey(p) };
   });
   return { activas: activas, cerca: cerca, ofertas: qcOfertasN() };
 };
@@ -9291,7 +9335,8 @@ qrRefrescarChip();
      pedido que no sea GET/HEAD hacia otro dominio se frena acá — no solo
      Forms y el Worker: también el PATCH a `clientes` de Supabase que hace
      «pidió reactivarse», que antes se escapaba. */
-  window.fetch = function (url, opts) {
+  window.QR_PROTOTIPO = true;   // la pantalla de éxito avisa que es una prueba
+window.fetch = function (url, opts) {
     const u = String((url && url.url) || url || "");
     const metodo = String((opts && opts.method) || (url && url.method) || "GET").toUpperCase();
     const ajeno = /^https?:\/\//i.test(u) && !u.startsWith(location.origin);
@@ -9306,7 +9351,6 @@ qrRefrescarChip();
           s.push(p);
           localStorage.setItem("proto_enviados", JSON.stringify(s));
           console.log("%c[PROTOTIPO] pedido capturado (no salió a la red)", "color:#ea580c;font-weight:700", p);
-          showToast("Pedido capturado — miralo en el depósito local", "ok");
         }
       } catch (e) { console.warn("[PROTOTIPO] no se pudo capturar:", e); }
     } else {
@@ -9665,6 +9709,81 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
 .v2-bar-promo{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:12.5px; font-weight:700; line-height:1.25; margin-bottom:4px; color:#ffe7c2; white-space:normal; text-align:left; }
 .v2-bar-promo[hidden]{ display:none; }
 
+
+/* ═══ BARRA DE ABAJO v3: totales · Vaciar · VER PEDIDO (oct-2026) ═══ */
+body.ui2 .v2-bar{ cursor:default; padding:8px 8px 8px 10px; gap:8px; }
+body.ui2 .v2-bar .v2-bar-txt{ border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; padding:4px 6px; min-height:52px; display:flex; flex-direction:column; justify-content:center; }
+body.ui2 .v2-bar .v2-bar-go{ border:0; font:inherit; font-weight:800; font-size:14px; cursor:pointer; min-height:52px; padding:0 16px; }
+body.ui2 .v2-bar-vaciar{ display:inline-flex; align-items:center; gap:6px; min-height:48px; padding:0 12px; border:1.5px solid rgba(255,255,255,.75); border-radius:14px;
+  background:transparent; color:#fff; font:inherit; font-size:13.5px; font-weight:700; cursor:pointer; flex:none; }
+body.ui2 .v2-bar-vaciar[hidden]{ display:none; }
+body.ui2 .v2-bar-vaciar:active{ background:rgba(255,255,255,.15); }
+/* Angosto: solo el ícono, así el total y la cantidad se leen enteros. */
+@media (max-width:430px){ body.ui2 .v2-bar-vaciar span{ display:none; } body.ui2 .v2-bar-vaciar{ width:48px; padding:0; justify-content:center; } }
+body.ui2[data-v2="queruclor"] .v2-bar{ background:linear-gradient(135deg,#a3006a 0%,#d4007f 55%,#ec1c8f 100%); }
+
+/* Pastilla de promos, arriba de la barra */
+body.ui2 .v2-promo-pill{ position:fixed; left:14px; right:14px; bottom:calc(88px + var(--v2-safe)); z-index:849; display:none; align-items:center; gap:8px;
+  min-height:44px; padding:8px 14px; border-radius:14px; border:1.5px solid #f2c14e; background:#fff7e6; color:#b4410b; font:inherit; font-size:14.5px; font-weight:800;
+  text-align:left; cursor:pointer; box-shadow:0 6px 16px rgba(240,90,20,.18); }
+body.ui2[data-v2="queruclor"] .v2-promo-pill:not([hidden]){ display:flex; }
+body.ui2 .v2-promo-pill .tx{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+body.ui2 .v2-promo-pill .fl{ font-size:22px; line-height:1; }
+body.ui2.v2-teclado .v2-promo-pill{ display:none !important; }
+
+/* Avisos de la app: uno por vez, arriba de la barra */
+/* Arriba, debajo del encabezado: abajo tapaba el campo que el aviso señala. */
+.v2-snack{ position:fixed; left:50%; transform:translateX(-50%); top:calc(72px + env(safe-area-inset-top,0px)); z-index:2100; width:min(92vw,480px);
+  display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border-radius:14px; background:#0f172a; color:#fff;
+  font-size:14.5px; font-weight:600; line-height:1.35; box-shadow:0 12px 30px rgba(15,23,42,.3); cursor:pointer; }
+.v2-snack[hidden]{ display:none; }
+.v2-snack.in{ animation:v2SnackIn .22s ease-out; }
+.v2-snack .ic{ flex:none; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font-size:14px; font-weight:900; background:#22c55e; color:#fff; }
+.v2-snack.error{ background:#fff1f2; color:#881337; border:1.5px solid #fda4af; box-shadow:0 12px 30px rgba(190,18,60,.18); }
+.v2-snack.error .ic{ background:#e11d48; }
+.v2-snack .tx{ flex:1; padding-top:2px; }
+@keyframes v2SnackIn{ from{ opacity:0; transform:translate(-50%,-12px); } to{ opacity:1; transform:translate(-50%,0); } }
+
+/* Pantalla de éxito: una sola, con todo */
+.modal-box.v2-ok{ text-align:center; padding:26px 22px 22px !important; border-radius:22px !important; border:0 !important; background:#fff !important; color:#0f172a !important; max-width:340px; }
+.v2-ok .v2-ok-ic{ width:64px; height:64px; margin:0 auto 10px; border-radius:50%; display:grid; place-items:center; font-size:34px; font-weight:900; color:#fff; background:linear-gradient(135deg,#16a34a,#22c55e); box-shadow:0 8px 20px rgba(22,163,74,.35); }
+.v2-ok h2{ margin:0; font-size:23px; font-weight:900; color:#15803d; }
+.v2-ok .v2-ok-cli{ margin:6px 0 0; font-size:16px; font-weight:800; color:#0f172a; }
+.v2-ok .v2-ok-tot{ margin:4px 0 0; font-size:14.5px; font-weight:600; color:#334155; }
+.v2-ok .v2-ok-nota{ margin:10px 0 0; font-size:12.5px; font-weight:600; color:#92400e; background:#fef3c7; border-radius:10px; padding:6px 10px; }
+
+/* ═══ SELECTOR DE CLIENTE v3 ═════════════════════════════════════ */
+body.ui2 .v2-sheet h3{ font-size:24px; font-weight:900; letter-spacing:-.01em; margin-top:6px; }
+body.ui2 .v2-sheet .sub{ font-size:15px; color:#64748b; margin-bottom:14px; }
+body.ui2 .v2-sheet .ac-wrap{ position:relative; }
+body.ui2 .v2-sheet #numeroCliente{ min-height:58px; font-size:19px; font-weight:600; border-radius:16px; border:1.5px solid #e2e8f0; background-color:#f8fafc;
+  padding:0 54px 0 50px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.3-4.3'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:16px 50%; background-size:22px; }
+body.ui2 .v2-sheet #numeroCliente:focus{ border-color:#10b981; background-color:#fff; outline:0; box-shadow:0 0 0 4px rgba(16,185,129,.15); }
+body.ui2 #v2CliX{ position:absolute; right:10px; top:29px; transform:translateY(-50%); width:36px; height:36px; border:0; border-radius:50%; background:#e2e8f0; color:#475569;
+  font-size:16px; font-weight:800; cursor:pointer; display:grid; place-items:center; }
+body.ui2 #v2CliX[hidden]{ display:none; }
+body.ui2 .v2-sheet #clienteDropdown{ max-height:none; margin-top:14px; }
+body.ui2 .v2-sheet .ac-header{ font-size:12px; font-weight:800; letter-spacing:.06em; color:#64748b; padding:2px 4px 8px; }
+body.ui2 .v2-sheet .ac-item.v2c{ display:flex; flex-direction:row; align-items:center; gap:12px; padding:14px 16px; margin-bottom:10px; border:1.5px solid #e2e8f0; border-radius:18px;
+  background:#fff; box-shadow:0 1px 3px rgba(15,23,42,.04); min-height:0; }
+body.ui2 .v2-sheet .ac-item.v2c:last-child{ border-bottom:1.5px solid #e2e8f0; }
+body.ui2 .v2-sheet .ac-item.v2c:active{ background:#f0fdf4; }
+body.ui2 .v2-sheet .ac-item.v2c.sel{ background:#ecfdf5; border-color:#6ee7b7; }
+body.ui2 .v2c-tx{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+body.ui2 .v2c-id{ font-size:15px; font-weight:800; color:#059669; letter-spacing:.02em; font-variant-numeric:tabular-nums; }
+body.ui2 .v2c-id .mio{ color:#f59e0b; margin-left:5px; }
+body.ui2 .v2c-nom{ font-size:18px; font-weight:800; color:#0f172a; line-height:1.25; }
+body.ui2 .v2c-dir{ display:flex; align-items:center; gap:6px; font-size:14.5px; font-weight:500; color:#64748b; margin-top:2px; min-width:0; }
+body.ui2 .v2c-dir svg{ flex:none; color:#94a3b8; }
+body.ui2 .v2c-dir span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+body.ui2 .v2c-desc{ flex:none; display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:99px; background:#111827; color:#fff; font-size:15px; font-weight:800; }
+body.ui2 .v2c-desc svg{ color:#34d399; }
+body.ui2 .v2c-ok{ flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; background:#10b981; color:#fff; font-size:20px; font-weight:900; box-shadow:0 4px 10px rgba(16,185,129,.35); }
+body.ui2 .v2c-dato{ font-size:11.5px; font-weight:800; color:#b91c1c; }
+body.ui2 .v2-sheet .ac-toggle{ border-radius:14px; padding:14px; font-size:14px; margin-top:4px; }
+
 /* ═══════════════════════════════════════════════════════════════════
    QUERUCLOR — TARJETAS (ver qr-tarjetas.js)
 
@@ -9879,6 +9998,8 @@ html.qcd-sin-scroll, html.qcd-sin-scroll body{ overflow:hidden; }
 .v2-promo{ display:none; }
 body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
 
+#qrApp .qc-tope,#qcDet .qc-tope{ font-size:12.5px; font-weight:700; color:#92400e; text-align:center; }
+
 </style>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
@@ -9910,6 +10031,9 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   const toast = (m, t) => seguro(() => showToast(m, t || "info"));
 
   document.body.classList.add("ui2");
+  /* La guía de primera vez explica la pantalla vieja y salía ENCIMA del
+     selector de clientes: en el celular no se muestra sola (sigue en «Más → Ayuda»). */
+  if (MQ.matches) { try { localStorage.setItem("coachVisto_v1", "1"); } catch (e) {} }
 
   const S = { p: "home", lista: [], limite: 100, cliAbierta: false, cliAlAbrir: null, alElegir: null, modoPrevio: null };
 
@@ -10028,10 +10152,13 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
         <button class="v2-cartbtn" id="v2CartBtn" type="button" aria-label="Ver pedido">${I.carro}<i id="v2CartN"></i></button>
       </header>
 
-      <button class="v2-bar" id="v2Bar" type="button">
-        <span class="v2-bar-txt"><span class="v2-bar-promo" id="v2BarPromo" hidden></span><span class="v2-bar-a" id="v2BarA">Tu pedido está vacío</span><span class="v2-bar-t" id="v2BarT">$0</span></span>
-        <span class="v2-bar-go">VER PEDIDO →</span>
-      </button>
+      <button class="v2-promo-pill" id="v2PromoPill" type="button" hidden></button>
+      <div class="v2-bar" id="v2Bar" role="group" aria-label="Tu pedido">
+        <button type="button" class="v2-bar-txt" id="v2BarInfo"><span class="v2-bar-a" id="v2BarA">Tu pedido está vacío</span><span class="v2-bar-t" id="v2BarT">$0</span></button>
+        <button type="button" class="v2-bar-vaciar" id="v2BarVaciar" hidden aria-label="Vaciar el carrito"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg><span>Vaciar</span></button>
+        <button type="button" class="v2-bar-go" id="v2BarGo">VER PEDIDO →</button>
+      </div>
+      <div class="v2-snack" id="v2Snack" role="status" aria-live="polite" hidden></div>
 
       <section class="v2-res" id="v2Res">
         <div class="v2-rhead"><button class="v2-back" id="v2ResBack" type="button" aria-label="Volver">‹</button><h2>Resumen del pedido</h2></div>
@@ -10496,7 +10623,13 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const hayQR = !!(window.QR && QR.totalCajas() > 0);
     if (!hayML && !hayQR) { toast("Agregá al menos un producto", "error"); return; }
     if (!clienteId()) { abrirCliente(); return; }
-    if (!$("fechaEntrega").value) { seguro(() => marcarCampo($("fechaEntrega"), "Falta la FECHA DE ENTREGA")); return; }
+    if (!$("fechaEntrega").value) { seguro(() => marcarCampo($("fechaEntrega"), "Falta la fecha de entrega: tocá el campo marcado y elegí el día")); return; }
+    if (!(localStorage.getItem("nombreVendedor") || "").trim()) {
+      seguro(() => { const vp = $("vendPick"); vp.classList.remove("hidden"); vp.classList.remove("needs-vend"); void vp.offsetWidth; vp.classList.add("needs-vend");
+        $("vendGroup").scrollIntoView({ block: "center", behavior: "smooth" }); });
+      toast("Falta tu nombre de vendedor: elegilo en el recuadro marcado", "error");
+      return;
+    }
     /* Directo al modal de confirmación de siempre, sin preguntas cruzadas:
        con habituales va por el envío normal (que suma Queruclor si hay);
        solo Queruclor, por su salida propia. */
@@ -10505,13 +10638,17 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   }
 
   /* ═══ REFRESCO (cabecera, barra de carrito, inicio) ═════════════ */
+  /* Varios cambios en el mismo instante (tipear, sumar) se dibujan una sola vez. */
+  let _rp = 0;
+  function refrescarPronto() { if (_rp) return; _rp = requestAnimationFrame(() => { _rp = 0; refrescar(); }); }
+
   function refrescar() {
     if (!MQ.matches) return;
     seguro(() => {
       /* Cliente elegido con la hoja abierta → seguir. */
       const c = cliente(), t = totales(), enQr = S.p === "queruclor";
       /* «Elegido» = el campo tiene un número de cliente REAL (mientras se escribe un nombre, no). */
-      if (S.cliAbierta && c && clienteId() !== S.cliAlAbrir) { S.cliAlAbrir = clienteId(); setTimeout(clienteElegido, 250); }
+      if (S.cliAbierta && c && clienteId() !== S.cliAlAbrir) { S.cliAlAbrir = clienteId(); setTimeout(clienteElegido, 150); }
       /* Pantalla interna de Queruclor (catálogo / resumen / confirmación). */
       const pantQr = enQr ? ((document.querySelector("#qrApp .screen.active") || {}).id || "scat") : "";
       if (document.body.dataset.v2q !== pantQr) { if (pantQr) document.body.dataset.v2q = pantQr; else delete document.body.dataset.v2q; }
@@ -10522,7 +10659,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       const nom = (localStorage.getItem("nombreVendedor") || "").trim();
       const cap = nom ? nom.split(" ")[0].charAt(0).toUpperCase() + nom.split(" ")[0].slice(1).toLowerCase() : "";
       $("v2HolaNom").innerHTML = cap ? `Hola, <b style="font-size:inherit">${esc(cap)}</b> 👋` : "Hola 👋";
-      let cartera = 0; seguro(() => Object.values(clientNames).forEach(x => { if (esDeMiCartera(x)) cartera++; }));
+      let cartera = 0; if (S.p === "home") seguro(() => Object.values(clientNames).forEach(x => { if (esDeMiCartera(x)) cartera++; }));
       const hora = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
       $("v2HolaSub").textContent = c ? "Cliente: " + c.name + (c.descuento != null ? " · " + c.descuento + "% desc." : "")
         : "Hoy " + hora + (cartera ? " · " + cartera + " clientes" : "") + " · tocá para elegir cliente";
@@ -10554,12 +10691,15 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
         $("v2BarT").textContent = carrito.length ? total : "$0";
         /* Ayuda de venta: lo que falta para una promo, o cuántas se activaron. */
         const pi = seguro(() => QR.promoInfo && QR.promoInfo()) || {};
-        const pr = $("v2BarPromo");
-        const txt = pi.cerca ? "🟠 Agregá " + pi.cerca.falta + " caja" + (pi.cerca.falta === 1 ? "" : "s") + " de " + pi.cerca.nombre + " y activás la promo"
-          : pi.activas ? "🔥 Tenés " + pi.activas + " promoci" + (pi.activas === 1 ? "ón activada" : "ones activadas") : "";
-        pr.textContent = txt; pr.hidden = !txt;
+        const pill = $("v2PromoPill");
+        const txt = pi.cerca ? "Agregá " + pi.cerca.falta + " caja" + (pi.cerca.falta === 1 ? "" : "s") + " de " + pi.cerca.nombre + " y activás la promo"
+          : pi.activas ? pi.activas + " promoci" + (pi.activas === 1 ? "ón activada" : "ones activadas") : "";
+        pill.innerHTML = txt ? '<span class="ic">' + (pi.cerca ? "🟠" : "🔥") + '</span><span class="tx">' + esc(txt) + '</span><span class="fl">›</span>' : "";
+        pill.hidden = !txt; pill._info = pi;
+        $("v2BarVaciar").hidden = !carrito.length;
       } else {
-        $("v2BarPromo").hidden = true;
+        $("v2PromoPill").hidden = true;
+        $("v2BarVaciar").hidden = !t.n;
         barra.classList.toggle("vacia", !t.n);
         $("v2BarA").textContent = t.n ? `${t.n} producto${t.n === 1 ? "" : "s"}${t.sinPrecio ? " · " + t.sinPrecio + " sin precio" : ""}` : "Tu pedido está vacío";
         $("v2BarT").textContent = t.n ? (t.sub ? money(t.total) + (t.sinPrecio ? " +" : "") : "—") : "$0";   // «+» = hay renglones sin precio que no suman
@@ -10596,10 +10736,32 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     /* Carrito y barra llevan SIEMPRE al mismo resumen único, se esté en
        Cargar o en Queruclor: ahí se ve todo y se envía. */
     $("v2CartBtn").onclick = () => abrirResumen();
-    $("v2Bar").onclick = () => {
+    $("v2Bar").onclick = e => {
+      if (e.target.closest("#v2BarVaciar")) return;
       const hayQR = !!(window.QR && QR.getCarrito().length);
-      if (!lineas().length && !hayQR) { toast("Agregá al menos un producto"); return; }
+      if (!lineas().length && !hayQR) { toast("Todavía no cargaste productos", "error"); return; }
       abrirResumen();
+    };
+    /* Vaciar rápido, con pregunta: un toque por error no puede borrar el pedido. */
+    $("v2BarVaciar").onclick = () => {
+      const enQr = S.p === "queruclor";
+      const n = enQr ? QR.totalCajas() : lineas().length;
+      seguro(() => confirmApp({
+        titulo: enQr ? "¿Vaciar el carrito de Queruclor?" : "¿Borrar los artículos habituales?",
+        mensaje: enQr ? (n === 1 ? "Se saca <b>1 caja</b>" : "Se sacan las <b>" + n + " cajas</b>") + " de Queruclor. Lo de artículos habituales no se toca."
+                      : (n === 1 ? "Se borra <b>1 renglón</b>" : "Se borran los <b>" + n + " renglones</b>") + " cargados. Queruclor no se toca.",
+        si: "SÍ, VACIAR", no: "NO, DEJAR"
+      }, () => {
+        if (enQr) { QR.vaciarCarrito(); toast("Carrito de Queruclor vacío"); }
+        else { const p = $("productos"); p.value = ""; p.dispatchEvent(new Event("input", { bubbles: true })); seguro(() => saveDraft()); renderQuick(); toast("Artículos habituales borrados"); }
+        refrescar();
+      }));
+    };
+    /* La pastilla de promos lleva al producto que está por activarla, o a las ofertas. */
+    $("v2PromoPill").onclick = () => {
+      const pi = $("v2PromoPill")._info || {};
+      if (pi.cerca && pi.cerca.id && QR.detalle) QR.detalle(pi.cerca.id);
+      else if (QR.setCat) QR.setCat("OFERTAS");
     };
     $("v2Enviar").onclick = enviar;
     $("v2ResCli").onclick = () => abrirCliente();
@@ -10676,13 +10838,16 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
 
   /* Engancha lo existente sin cambiarlo */
   function enganchar() {
+    /* Elegir el cliente cierra la hoja enseguida: antes esperaba al repintado
+       periódico y tardaba hasta un segundo y medio. */
+    seguro(() => { const o = selectCliente; window.selectCliente = function () { const r = o.apply(this, arguments); refrescar(); return r; }; });
     seguro(() => { const o = cvRenderGrid; window.cvRenderGrid = function () { if (MQ.matches) pintarLista(); else o.apply(this, arguments); }; });
-    seguro(() => { const o = actualizarBadgeRenglones; window.actualizarBadgeRenglones = function () { const r = o.apply(this, arguments); refrescar(); return r; }; });
+    seguro(() => { const o = actualizarBadgeRenglones; window.actualizarBadgeRenglones = function () { const r = o.apply(this, arguments); refrescarPronto(); return r; }; });
     seguro(() => {
       const o = clearForm;
       window.clearForm = function () {
         const r = o.apply(this, arguments);
-        if (S.p === "resumen") { toast("Pedido enviado ✔"); ir("home"); }
+        if (S.p === "resumen") ir("home");
         setTimeout(() => { renderQuick(); refrescar(); }, 0);
         return r;
       };
@@ -10716,6 +10881,97 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
      tocar la navegación de acá adentro — cambiaba la pestaña clásica por
      debajo, invisible, y a los ojos del vendedor no pasaba nada. */
   window.v2IrA = p => { if (MQ.matches) ir(p); };
+
+  /* ═══ SELECTOR DE CLIENTE: tarjetas claras ═══════════════════════
+     Número en verde, nombre grande, dirección con su pin, descuento en
+     etiqueta oscura y tilde en el que está elegido. Solo en la vista de
+     celular; en la PC queda el desplegable de siempre. */
+  (function () {
+    const orig = window.acItemHtml;
+    if (typeof orig !== "function") return;
+    const PIN = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z"/></svg>';
+    const TAG = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Zm4.5-3A1.5 1.5 0 1 0 7.5 6a1.5 1.5 0 0 0 0 3Z"/></svg>';
+    window.acItemHtml = function (id, c, isFirst, mio) {
+      if (!MQ.matches) return orig.apply(this, arguments);
+      const elegido = String($("numeroCliente").value || "").trim() === String(id);
+      const der = elegido ? '<span class="v2c-ok" aria-label="Elegido">✓</span>'
+        : (c.descuento != null ? '<span class="v2c-desc">' + TAG + esc(String(c.descuento)) + '%</span>' : "");
+      return '<div class="ac-item v2c' + (elegido ? " sel" : "") + (isFirst ? " active" : "") + '" data-id="' + esc(id) +
+        '" onmousedown="selectCliente(&#39;' + esc(id) + '&#39;)">' +
+        '<div class="v2c-tx"><span class="v2c-id">' + esc(id) + (mio ? '<span class="mio" title="De tu cartera">★</span>' : "") + '</span>' +
+        '<b class="v2c-nom">' + esc(c.name) + '</b>' +
+        (c.desc ? '<span class="v2c-dir">' + PIN + '<span>' + esc(c.desc) + '</span></span>' : "") +
+        (c.corrupted ? '<span class="v2c-dato">Revisar datos de este cliente</span>' : "") +
+        '</div>' + der + '</div>';
+    };
+    /* X para borrar lo escrito, dentro del campo */
+    const inp = $("numeroCliente");
+    if (inp && !$("v2CliX")) {
+      const x = document.createElement("button");
+      x.type = "button"; x.id = "v2CliX"; x.setAttribute("aria-label", "Borrar"); x.textContent = "✕";
+      x.hidden = !inp.value;
+      x.onmousedown = e => { e.preventDefault(); inp.value = ""; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.focus(); };
+      inp.after(x);
+      inp.addEventListener("input", () => { x.hidden = !inp.value; });
+      inp.setAttribute("placeholder", "N° de cliente, nombre o dirección");
+    }
+  })();
+
+  /* ═══ AVISOS DE LA APP ══════════════════════════════════════════
+     Antes cada aviso se apilaba sobre el anterior, con estilos distintos,
+     y un mismo error podía salir dos veces. Ahora: uno por vez, con el
+     diseño de la app; los errores se quedan más tiempo; si llegan dos
+     errores juntos se muestra el PRIMERO (el que dice qué falta). */
+  (function () {
+    const orig = window.showToast;
+    let timer = 0, ultimoError = 0;
+    const limpiarTxt = m => String(m == null ? "" : m).replace(/^[✅✔️⚠️❌\s]+/u, "").replace(/[\s✅✔️]+$/u, "");
+    window.showToast = function (m, t) {
+      if (!MQ.matches || !$("v2Snack")) return orig && orig.apply(this, arguments);
+      const tipo = t === "error" || t === "err" ? "error" : (t === "ok" ? "ok" : "info");
+      const ahora = Date.now();
+      if (tipo === "error") { if (ahora - ultimoError < 900) return; ultimoError = ahora; }
+      const box = $("v2Snack");
+      box.className = "v2-snack " + tipo;
+      box.innerHTML = '<span class="ic" aria-hidden="true">' + (tipo === "error" ? "!" : "✓") + '</span><span class="tx">' + limpiarTxt(m) + '</span>';
+      box.hidden = false;
+      box.classList.remove("in"); void box.offsetWidth; box.classList.add("in");
+      clearTimeout(timer);
+      timer = setTimeout(() => { box.hidden = true; }, tipo === "error" ? 4200 : 2400);
+    };
+    document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("#v2Snack"); if (b) b.hidden = true; });
+  })();
+
+  /* ═══ ÉXITO: UNA sola pantalla que dice todo ═════════════════════
+     Antes salían tres avisos seguidos. Ahora la pantalla de «¡LISTO!»
+     dice a quién, cuánto, y si quedó esperando señal. */
+  (function () {
+    let ultimo = null;
+    const btn = $("btnConfirmYes");
+    if (btn) btn.addEventListener("click", () => {
+      const c = cliente(), t = totales();
+      let qr = 0; seguro(() => { qr = QR.getCarrito().reduce((a, it) => a + QR.itemPrecio(it), 0); });
+      ultimo = { nombre: c ? c.name : "", hab: $("productos").value.trim() ? t.total : 0, habN: lineas().length, qr };
+    }, true);
+    const ov = $("confirmOverlay");
+    if (!ov) return;
+    new MutationObserver(() => {
+      if (ov.style.display !== "flex" || !ultimo) return;
+      const box = ov.querySelector(".modal-box"); if (!box) return;
+      const partes = [];
+      if (ultimo.hab) partes.push("Habituales ~" + money(ultimo.hab));
+      else if (ultimo.habN) partes.push(ultimo.habN + " artículo" + (ultimo.habN === 1 ? "" : "s") + " habitual" + (ultimo.habN === 1 ? "" : "es"));
+      if (ultimo.qr) partes.push("Queruclor " + money(ultimo.qr));
+      const sinSenal = !navigator.onLine;
+      box.classList.add("v2-ok");
+      box.innerHTML = '<div class="v2-ok-ic">✓</div><h2>¡Pedido enviado!</h2>' +
+        (ultimo.nombre ? '<p class="v2-ok-cli">' + esc(ultimo.nombre) + '</p>' : "") +
+        (partes.length ? '<p class="v2-ok-tot">' + partes.join(" · ") + '</p>' : "") +
+        (sinSenal ? '<p class="v2-ok-nota">Sin señal: quedó guardado y sale solo apenas vuelva.</p>' : "") +
+        (window.QR_PROTOTIPO ? '<p class="v2-ok-nota">Modo prueba: no se mandó a producción.</p>' : "");
+      ultimo = null;
+    }).observe(ov, { attributes: true, attributeFilter: ["style"] });
+  })();
   /* ¿Está mandando la vista de celular? (puente.js decide el envío según esto) */
   window.v2Activo = () => MQ.matches;
   /* Mismo cálculo que ya usa la barra de carrito de Cargar (con el

@@ -1501,6 +1501,14 @@ renderCatKPIs();
 
   const leer = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } };
   const guardar = c => localStorage.setItem(KEY, JSON.stringify(c));
+  /* Para consultar (buscar/todos/cuantos): memoria por contenido, igual que
+     el stock. Se devuelven copias, así nadie puede ensuciar la memoria. */
+  let memoCat = { raw: null, obj: {} };
+  const leerRO = () => {
+    const raw = localStorage.getItem(KEY);
+    if (raw !== memoCat.raw) { let o; try { o = JSON.parse(raw) || {}; } catch (e) { o = {}; } memoCat = { raw, obj: o }; }
+    return memoCat.obj;
+  };
   const meta = () => { try { return JSON.parse(localStorage.getItem(KEY_META)) || {}; } catch (e) { return {}; } };
 
   /* ── Precio de venta ──────────────────────────────────────────────
@@ -1644,9 +1652,9 @@ renderCatKPIs();
   }
 
   /* ── Consulta: es lo que usa facturación con el EAN del pedido ── */
-  function buscar(ean) { return leer()[String(ean).trim()] || null; }
-  function todos() { return Object.values(leer()); }
-  function cuantos() { return Object.keys(leer()).length; }
+  function buscar(ean) { const f = leerRO()[String(ean).trim()]; return f ? Object.assign({}, f) : null; }
+  function todos() { return Object.values(leerRO()).map(f => Object.assign({}, f)); }
+  function cuantos() { return Object.keys(leerRO()).length; }
 
   /* ── Siembra automática desde la lista embebida ────────────────
      localStorage es POR ORIGEN: lo que se sube en el admin abierto con
@@ -6150,6 +6158,21 @@ renderCatKPIs();
   const leer = (k, def) => { try { return JSON.parse(localStorage.getItem(k)) || def; } catch (e) { return def; } };
   const guardar = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
+  /* Lectura SOLO para consultar, con memoria: si lo guardado no cambió se
+     reusa lo ya decodificado. Cada tarjeta del vendedor pregunta el stock
+     varias veces por toque; decodificar todo el stock en cada pregunta era
+     lo que trababa la app en el celular (82 de cada 95 ms por toque).
+     Las escrituras siguen usando leer(), que devuelve una copia fresca. */
+  const memo = {};
+  const leerRO = (k, def) => {
+    const raw = localStorage.getItem(k);
+    const m = memo[k];
+    if (m && m.raw === raw) return m.obj;
+    let obj; try { obj = JSON.parse(raw) || def; } catch (e) { obj = def; }
+    memo[k] = { raw, obj };
+    return obj;
+  };
+
   const ahora = () => new Date().toISOString();
   const num = n => Math.max(0, Math.round(Number(n) || 0));
 
@@ -6158,7 +6181,7 @@ renderCatKPIs();
      catálogo no se le puede llevar stock: no sabríamos cuántas unidades
      tiene una caja y toda la aritmética sería inventada. */
   function ucDe(ean) {
-    const fila = leer(K_STOCK, {})[String(ean)];
+    const fila = leerRO(K_STOCK, {})[String(ean)];
     if (fila && fila.uc > 0) return fila.uc;
     const ficha = global.Catalogo ? Catalogo.buscar(ean) : null;
     return (ficha && Number(ficha.uc)) || 0;
@@ -6166,7 +6189,7 @@ renderCatKPIs();
 
   /* ── Físico ───────────────────────────────────────────────────── */
   function fisico(ean) {
-    const f = leer(K_STOCK, {})[String(ean)];
+    const f = leerRO(K_STOCK, {})[String(ean)];
     if (!f) return { cajas: 0, sueltas: 0, uc: ucDe(ean), existe: false };
     return { cajas: num(f.cajas), sueltas: num(f.sueltas), uc: f.uc || ucDe(ean), existe: true };
   }
@@ -6191,7 +6214,7 @@ renderCatKPIs();
   const claveRes = (pedido, ean) => "p" + pedido + "|" + ean;
 
   function reservasDe(ean) {
-    const r = leer(K_RES, {});
+    const r = leerRO(K_RES, {});
     return Object.values(r).filter(x => x.ean === String(ean) && x.estado === "reservada");
   }
 
