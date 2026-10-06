@@ -8401,6 +8401,409 @@ window.QR.confirmarPedido = function(){
   }
   window.qrPedirEnvio();
 };
+/* ═══════════════════════════════════════════════════════════════════
+   QUERUCLOR — TARJETAS DE PRODUCTO (diseño oct-2026)
+
+   Se inserta ADENTRO del módulo de Queruclor (build-integrado.js), así
+   que ve sus variables: E, CATALOGO, CATS, getOferta, itemPrecio,
+   getStockProd, textoStock, Formatos, qtySuelto, chgQty, abrirAromas…
+
+   Lo que pidió Pablo, viendo la app en la calle:
+   · Ver de un vistazo QUÉ se pidió y CUÁNTO: AGREGAR grande si no está;
+     contador «− 3 cajas +» si está. Tres estados que se distinguen sin
+     leer: normal, en pedido (✓) y en oferta (tarjeta naranja entera).
+   · La oferta por volumen tiene que ARMAR el precio: llegando a las cajas
+     que pide, la tarjeta pasa al precio promocional. Antes la tarjeta
+     seguía mostrando el de lista (el total sí lo aplicaba) y parecía que
+     la promo no andaba. Y si falta poco: «Agregá 1 caja y activás la
+     promo» — es un argumento de venta, no un adorno.
+   · Tocar la tarjeta (o la foto) abre el producto en grande, para tomar
+     el pedido cómodo. Sumar y restar se hace sin entrar.
+   · 🔥 Ofertas primera en las categorías, con contador. El buscador
+     encuentra también por código de barras.
+   ═══════════════════════════════════════════════════════════════════ */
+
+var qcEsc = function (s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+};
+var qcNorm = function (s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+};
+var qcKey = function (p) { return p.tipo === "familia" ? p.familiaKey : p.ean; };
+var qcProd = function (id) { return CATALOGO.find(function (x) { return qcKey(x) === id; }) || null; };
+var qcEans = function (p) { return p.tipo === "familia" ? p.variantes.map(function (v) { return v.ean; }) : [p.ean]; };
+
+/* El renglón de CAJAS (no el de sueltas) de un producto simple. */
+var qcItemCajas = function (ean) {
+  return (E.carrito || []).find(function (i) { return i.ean === ean && i.modo !== "sueltas"; }) || null;
+};
+var qcItemDe = function (p) {
+  return p.tipo === "familia" ? getFamItemCarrito(p.familiaKey) : qcItemCajas(p.ean);
+};
+var qcCajas = function (p) { var it = qcItemDe(p); return it ? (it.cantidad || 0) : 0; };
+var qcSueltas = function (p) {
+  return p.tipo === "familia" || typeof qtySuelto !== "function" ? 0 : qtySuelto(p.ean);
+};
+var qcVendeSuelto = function (p) {
+  return p.tipo !== "familia" && window.Formatos && Formatos.seVendeSuelto && Formatos.seVendeSuelto(p.ean);
+};
+
+/* ── Oferta: ¿aplica con estas cajas? ¿cuánto falta? ─────────────── */
+function qcOferta(p) {
+  var of = getOferta(qcKey(p));
+  if (!of) return null;
+  var cajas = qcCajas(p);
+  var vol = of.tipo === "volumen";
+  var min = vol ? (Number(of.minBultos) || 0) : 0;
+  var aplica = !vol || cajas >= min;
+  return {
+    of: of, vol: vol, min: min, pct: Number(of.pct) || 0, aplica: aplica,
+    falta: vol && cajas > 0 && cajas < min ? min - cajas : 0,
+    puPromo: p.precioUnit * (1 - (Number(of.pct) || 0) / 100),
+    pbPromo: p.precioBulto * (1 - (Number(of.pct) || 0) / 100),
+  };
+}
+
+/* ── Partes de la tarjeta (las comparten tarjeta y detalle) ──────── */
+function qcPrecioHTML(p, o) {
+  var caja = '<span class="qc-caja">' + fmt(o && o.aplica ? o.pbPromo : p.precioBulto) + '/caja</span>';
+  if (o && o.aplica) {
+    return '<div class="qc-precio"><span class="qc-antes">' + fmt(p.precioUnit) + '</span>' +
+      '<b class="qc-pu promo">' + fmt(o.puPromo) + '<small> c/u</small></b>' + caja + '</div>';
+  }
+  if (o && o.vol) {
+    return '<div class="qc-precio"><b class="qc-pu">' + fmt(p.precioUnit) + '<small> c/u</small></b>' + caja + '</div>' +
+      '<div class="qc-prox">→ <b>' + fmt(o.puPromo) + ' c/u</b> desde ' + o.min + ' cajas</div>';
+  }
+  return '<div class="qc-precio"><b class="qc-pu">' + fmt(p.precioUnit) + '<small> c/u</small></b>' + caja + '</div>';
+}
+
+function qcAccionHTML(p, o, grande) {
+  var id = qcKey(p), ns = getStockProd(p) === 0;
+  var q = "'" + id + "'";
+  var html = "";
+  if (p.tipo === "familia") {
+    var it = getFamItemCarrito(p.familiaKey);
+    if (it) {
+      var det = it.modo === "surtida"
+        ? it.aromas.map(function (a) { return a.nombre.split(" ")[0] + " ×" + a.unidades + "u"; }).join(", ")
+        : it.aromas.map(function (a) { return a.nombre.split(" ")[0] + " ×" + a.cajas; }).join(", ");
+      html = '<button type="button" class="qc-fam" onclick="QR.qcAromas(' + q + ')">' +
+        '<span class="qc-fam-n">' + it.cantidad + ' caja' + (it.cantidad === 1 ? '' : 's') + (it.modo === "surtida" ? " surtida" : "") + '</span>' +
+        '<span class="qc-fam-d">' + qcEsc(det) + '</span><span class="qc-fam-e">Editar</span></button>';
+    } else {
+      html = '<button type="button" class="qc-agregar" onclick="QR.qcAromas(' + q + ')" ' + (ns ? "disabled" : "") + '>' +
+        (ns ? "Sin stock" : "ELEGIR " + varTxt(p).toUpperCase() + "S (" + p.variantes.length + ") ›") + '</button>';
+    }
+  } else {
+    var n = qcCajas(p);
+    if (n > 0) {
+      html = '<div class="qc-step' + (grande ? " grande" : "") + '">' +
+        '<button type="button" class="qc-menos" onclick="QR.chgQty(' + q + ',-1)" aria-label="Una caja menos">−</button>' +
+        '<span class="qc-n"><b>' + n + '</b> caja' + (n === 1 ? "" : "s") + '</span>' +
+        '<button type="button" class="qc-mas" onclick="QR.chgQty(' + q + ',1)" aria-label="Una caja más">+</button></div>';
+    } else {
+      html = '<button type="button" class="qc-agregar" onclick="QR.chgQty(' + q + ',1)" ' + (ns ? "disabled" : "") + '>' +
+        (ns ? "Sin stock" : "AGREGAR <span aria-hidden=\"true\">+</span>") + '</button>';
+    }
+  }
+  return html;
+}
+
+/* El aviso de promo va en su propia franja, a lo ancho: en la columna
+   del botón no entra y se lee cortado. */
+function qcFaltaHTML(p, o) {
+  var html = "";
+  if (o && o.falta) {
+    html += '<div class="qc-falta"><span class="qc-falta-i" aria-hidden="true"></span><span>Agregá <b>' + o.falta + ' caja' +
+      (o.falta === 1 ? "" : "s") + ' más</b> y activás la promo</span></div>';
+  } else if (o && o.vol && o.aplica && qcCajas(p) > 0) {
+    html += '<div class="qc-activa">🔥 Promo activada: ' + o.pct + '% OFF en estas cajas</div>';
+  }
+  return html;
+}
+
+function qcSueltasHTML(p) {
+  if (!qcVendeSuelto(p)) return "";
+  var n = qcSueltas(p);
+  var hay = typeof sueltasDisponibles === "function" ? sueltasDisponibles(p.ean) : 0;
+  var q = "'" + p.ean + "'";
+  return '<div class="qc-sueltas qr-suelto">' +
+    '<span class="qc-s-lbl">Unidades sueltas' + (n > 0 ? ' · <b>' + fmt(n * p.precioUnit) + '</b>' : '') + '</span>' +
+    '<div class="qc-step chico">' +
+      '<button type="button" class="qc-menos" onclick="QR.chgSuelto(' + q + ',-1)" ' + (n <= 0 ? "disabled" : "") + ' aria-label="Una unidad menos">−</button>' +
+      '<span class="qc-n"><b>' + n + '</b> un.</span>' +
+      '<button type="button" class="qc-mas" onclick="QR.chgSuelto(' + q + ',1)" ' + (hay <= n ? "disabled" : "") + ' aria-label="Una unidad más">+</button>' +
+    '</div></div>';
+}
+
+function qcStockHTML(p) {
+  var st = typeof textoStock === "function" ? textoStock(p) : null;
+  return st ? '<span class="qc-stk ' + st.clase + '">' + qcEsc(st.txt) + '</span>' : "";
+}
+
+function qcImg(p) { return (p.tipo === "familia" ? p.imagenPrincipal : p.ean) + ".jpg"; }
+
+/* ── La tarjeta ────────────────────────────────────────────────── */
+function qcCard(p) {
+  var id = qcKey(p), o = qcOferta(p);
+  var n = qcCajas(p) + qcSueltas(p);
+  var enPedido = n > 0 || (p.tipo === "familia" && !!getFamItemCarrito(p.familiaKey));
+  var ns = getStockProd(p) === 0;
+  var cls = "qc" + (o ? " oferta" : "") + (enPedido ? " en-pedido" : "") + (ns ? " ns" : "");
+  var cab = o ? '<div class="qc-of"><span class="qc-badge">🔥 ' + (o.vol ? "OFERTA POR VOLUMEN" : "OFERTA") + '</span>' +
+    '<span class="qc-cond">' + o.pct + '% OFF' + (o.vol ? ' llevando ' + o.min + '+ cajas' : '') + '</span></div>' : "";
+  var sub = "";
+  if (enPedido && p.tipo !== "familia") {
+    var it = qcItemCajas(p.ean);
+    var plata = (it ? itemPrecio(it) : 0) + qcSueltas(p) * p.precioUnit;
+    sub = '<div class="qc-ok">✓ En pedido · ' + fmt(plata) + '</div>';
+  } else if (enPedido) {
+    sub = '<div class="qc-ok">✓ En pedido · ' + fmt(itemPrecio(getFamItemCarrito(p.familiaKey))) + '</div>';
+  }
+  return '<article class="' + cls + '" data-qc="' + qcEsc(id) + '" data-sig="' + qcEsc(qcFirma(p)) + '">' + cab +
+    '<button type="button" class="qc-img" data-det aria-label="Ver ' + qcEsc(p.nombre) + ' en grande">' +
+      '<img src="' + qcImg(p) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'"></button>' +
+    '<h3 class="qc-nom" data-det>' + qcEsc(p.nombre) + '</h3>' +
+    '<div class="qc-info" data-det>' +
+      '<div class="qc-meta">' + qcEsc(p.marca) + ' · Caja x ' + p.uc + (p.tipo === "familia" ? " · " + p.variantes.length + " " + varTxt(p) + "s" : "") + '</div>' +
+      qcStockHTML(p) + qcPrecioHTML(p, o) + sub +
+    '</div>' +
+    '<div class="qc-acc">' + qcAccionHTML(p, o, false) + '</div>' +
+    qcFaltaHTML(p, o) +
+    qcSueltasHTML(p) +
+  '</article>';
+}
+
+/* Lo que tiene que cambiar para repintar una tarjeta. Así se repinta
+   SOLO la que se tocó: la grilla entera titilaba en cada «+». */
+function qcFirma(p) {
+  var it = qcItemDe(p), of = getOferta(qcKey(p));
+  var st = typeof textoStock === "function" ? textoStock(p) : null;
+  return [qcCajas(p), qcSueltas(p), it ? JSON.stringify(it.aromas || "") + it.modo : "",
+    of ? of.pct + "/" + of.tipo + "/" + of.minBultos : "", p.precioUnit, getStockProd(p), st ? st.txt : ""].join("|");
+}
+
+function qcRepintar() {
+  var grid = document.getElementById("grid");
+  if (grid) grid.querySelectorAll(".qc[data-qc]").forEach(function (el) {
+    var p = qcProd(el.getAttribute("data-qc"));
+    if (!p) return;
+    if (el.getAttribute("data-sig") === qcFirma(p)) return;
+    el.outerHTML = qcCard(p);
+  });
+  if (qcDetId) qcPintarDetalle();
+  qcPintarTabs();
+}
+
+/* ── Grilla, categorías y búsqueda ─────────────────────────────── */
+var qcOfertasN = function () { return CATALOGO.filter(function (p) { return !!getOferta(qcKey(p)); }).length; };
+
+function qcPintarTabs() {
+  var cont = document.getElementById("cattabs");
+  if (!cont) return;
+  var nOf = qcOfertasN();
+  if (E.cat === "OFERTAS" && !nOf) E.cat = "TODAS";
+  var html = (nOf ? '<button type="button" class="ctab qc-tab-of ' + (E.cat === "OFERTAS" ? "active" : "") +
+    '" onclick="QR.setCat(\'OFERTAS\')">🔥 Ofertas <span class="qc-tab-n">' + nOf + '</span></button>' : "") +
+    CATS.map(function (c) {
+      return '<button type="button" class="ctab ' + (c.k === E.cat ? "active" : "") + '" onclick="QR.setCat(\'' + c.k + '\')">' + c.l + '</button>';
+    }).join("");
+  if (cont.getAttribute("data-html") !== html) { cont.innerHTML = html; cont.setAttribute("data-html", html); }
+}
+renderTabs = qcPintarTabs;
+
+renderGrid = function () {
+  var q = qcNorm(E.busq);
+  var items = CATALOGO;
+  if (E.cat === "OFERTAS") items = items.filter(function (p) { return !!getOferta(qcKey(p)); });
+  else if (E.cat !== "TODAS") items = items.filter(function (p) { return p.cat === E.cat; });
+  if (q) {
+    var dig = q.replace(/\D/g, "");
+    items = items.filter(function (p) {
+      if (qcNorm(p.nombre + " " + p.marca + " " + p.cat).indexOf(q) >= 0) return true;
+      /* Por código: alcanza con los últimos dígitos (lo que se lee rápido en la caja). */
+      return dig.length >= 4 && qcEans(p).some(function (e) { return String(e).indexOf(dig) >= 0; });
+    });
+  }
+  /* Con oferta primero dentro de cada categoría: es el argumento de venta. */
+  if (E.cat !== "OFERTAS") items = items.slice().sort(function (a, b) {
+    return (getOferta(qcKey(b)) ? 1 : 0) - (getOferta(qcKey(a)) ? 1 : 0);
+  });
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  qcMedir();
+  grid.innerHTML = items.length ? items.map(qcCard).join("")
+    : '<div class="qc-vacio">' + (q ? "No encontré «" + qcEsc(E.busq) + "». Probá con la marca o los últimos números del código." : "No hay productos en esta categoría.") + '</div>';
+  qcPintarTabs();
+};
+
+/* Columnas y forma de la tarjeta según el ancho real de la grilla. */
+function qcMedir() {
+  var g = document.getElementById("grid");
+  if (!g || !g.clientWidth) return;
+  var w = g.clientWidth, cols = w >= 1050 ? 3 : w >= 600 ? 2 : 1;
+  var col = (w - (cols - 1) * 10) / cols;
+  if (g.dataset.cols !== String(cols)) g.dataset.cols = cols;
+  var forma = col < 340 ? "angosta" : "normal";
+  if (g.dataset.tarjeta !== forma) g.dataset.tarjeta = forma;
+}
+if (window.ResizeObserver) { (function () { var g = document.getElementById("grid"); if (g) new ResizeObserver(qcMedir).observe(g); })(); }
+
+/* «Todas» al buscar, y la X para borrar. */
+filtrarProd = function (v) {
+  E.busq = String(v || "").trim(); if (E.busq) E.cat = "TODAS";
+  var x = document.getElementById("qcBorrar"); if (x) x.hidden = !E.busq;
+  renderGrid();
+};
+window.QR.filtrarProd = filtrarProd;
+setCat = function (k) {
+  E.cat = k; E.busq = "";
+  var s = document.getElementById("psearch"); if (s) s.value = "";
+  var x = document.getElementById("qcBorrar"); if (x) x.hidden = true;
+  renderGrid(); window.scrollTo({ top: 0, behavior: "smooth" });
+};
+window.QR.setCat = setCat;
+
+/* Después de cada cambio en el carrito se repintan SOLO las tarjetas que
+   cambiaron (cajas, aromas, sueltas, ofertas que llegaron). */
+var _qcUpd = updCartUI;
+updCartUI = function () { var r = _qcUpd.apply(this, arguments); try { qcRepintar(); } catch (e) { console.warn("[qc]", e); } return r; };
+
+/* chgQty / chgSuelto originales siguen haciendo la lógica (stock, carrito,
+   renglón fantasma); acá solo se asegura el repintado. */
+var _qcChg = chgQty;
+chgQty = function (ean, d) { var r = _qcChg.apply(this, arguments); qcRepintar(); return r; };
+window.QR.chgQty = chgQty;
+if (window.QR.chgSuelto) {
+  var _qcSu = window.QR.chgSuelto;
+  window.QR.chgSuelto = function () { var r = _qcSu.apply(this, arguments); qcRepintar(); return r; };
+}
+
+/* Aromas: se cierra el detalle antes de abrir la hoja, que es otra capa. */
+window.QR.qcAromas = function (fk) {
+  var abierto = !!qcDetId; qcCerrarDetalle();
+  setTimeout(function () { abrirAromas(fk); }, abierto ? 60 : 0);
+};
+
+/* ── Detalle grande ────────────────────────────────────────────── */
+var qcDetId = null, qcIgnorarPop = false;
+
+function qcDetalleHTML(p) {
+  var o = qcOferta(p);
+  var ofBox = "";
+  if (o) {
+    ofBox = '<div class="qcd-of"><div class="qcd-of-t">🔥 ' + (o.vol ? "Oferta por volumen" : "Oferta") + ' · ' + o.pct + '% OFF</div>' +
+      '<div class="qcd-of-d">' + (o.vol
+        ? (o.aplica && qcCajas(p) > 0 ? "Activada: estas cajas van a " + fmt(o.puPromo) + " c/u." :
+           "Llevando <b>" + o.min + " cajas o más</b>, cada unidad queda en <b>" + fmt(o.puPromo) + "</b> (en vez de " + fmt(p.precioUnit) + ").")
+        : "Cada unidad a <b>" + fmt(o.puPromo) + "</b> en vez de " + fmt(p.precioUnit) + ".") +
+      (o.of.fin ? " Vale hasta el " + o.of.fin.split("-").reverse().join("/") + "." : "") + '</div></div>';
+  }
+  var aromas = p.tipo === "familia" ? '<div class="qcd-aromas">' + p.variantes.map(function (v) {
+    return '<span>' + qcEsc(v.nombre) + '</span>'; }).join("") + '</div>' : "";
+  var it = qcItemDe(p);
+  var tot = (it ? itemPrecio(it) : 0) + qcSueltas(p) * p.precioUnit;
+  return '<div class="qcd-img"><img src="' + qcImg(p) + '" alt="' + qcEsc(p.nombre) + '" onerror="this.style.visibility=\'hidden\'"></div>' +
+    '<div class="qcd-body">' +
+      '<h2 id="qcdTitulo">' + qcEsc(p.nombre) + '</h2>' +
+      '<div class="qc-meta">' + qcEsc(p.marca) + ' · Caja x ' + p.uc + ' unidades' + (p.tipo === "familia" ? " · " + p.variantes.length + " " + varTxt(p) + "s" : "") + '</div>' +
+      qcStockHTML(p) + qcPrecioHTML(p, o) + ofBox + aromas +
+      (tot > 0 ? '<div class="qcd-tot">En este pedido: <b>' + fmt(tot) + '</b></div>' : "") +
+      '<div class="qcd-acc">' + qcAccionHTML(p, o, true) + qcFaltaHTML(p, o) + qcSueltasHTML(p) + '</div>' +
+    '</div>';
+}
+
+function qcPintarDetalle() {
+  var p = qcProd(qcDetId), box = document.getElementById("qcdCont");
+  if (!p || !box) return;
+  var sig = qcFirma(p);
+  if (box.getAttribute("data-sig") === sig) return;
+  box.innerHTML = qcDetalleHTML(p); box.setAttribute("data-sig", sig);
+}
+
+window.QR.detalle = function (id) {
+  var p = qcProd(id);
+  if (!p) return;
+  var cap = document.getElementById("qcDet");
+  if (!cap) {
+    cap = document.createElement("div");
+    cap.id = "qcDet";
+    cap.innerHTML = '<div class="qcd-fondo" data-cerrar></div>' +
+      '<section class="qcd-hoja" role="dialog" aria-modal="true" aria-labelledby="qcdTitulo">' +
+        '<div class="qcd-asa" aria-hidden="true"></div>' +
+        '<button type="button" class="qcd-x" data-cerrar aria-label="Cerrar">✕</button>' +
+        '<div id="qcdCont"></div></section>';
+    document.body.appendChild(cap);
+    cap.addEventListener("click", function (e) { if (e.target.closest("[data-cerrar]")) qcCerrarDetalle(); });
+  }
+  qcDetId = id;
+  var box = document.getElementById("qcdCont"); box.removeAttribute("data-sig");
+  qcPintarDetalle();
+  cap.classList.add("abierto");
+  document.documentElement.classList.add("qcd-sin-scroll");
+  history.pushState({ qcDet: id }, "");
+  setTimeout(function () { var x = cap.querySelector(".qcd-x"); if (x) x.focus({ preventScroll: true }); }, 50);
+};
+
+function qcCerrarDetalle(sinHistoria) {
+  var cap = document.getElementById("qcDet");
+  if (!cap || !cap.classList.contains("abierto")) return;
+  cap.classList.remove("abierto");
+  document.documentElement.classList.remove("qcd-sin-scroll");
+  qcDetId = null;
+  /* El «atrás» que dispara la X es nuestro: la navegación de la UI v2 no
+     lo tiene que ver (si no, sube al principio o vuelve al inicio). */
+  if (!sinHistoria && history.state && history.state.qcDet) { qcIgnorarPop = true; history.back(); }
+}
+window.QR.cerrarDetalle = qcCerrarDetalle;
+/* «Atrás» del celular cierra el detalle en vez de salir de Queruclor.
+   Va en captura y corta la propagación: si no, la navegación de la UI v2
+   también lo tomaría como «volver al inicio». */
+window.addEventListener("popstate", function (e) {
+  if (qcIgnorarPop) { qcIgnorarPop = false; e.stopImmediatePropagation(); return; }
+  var cap = document.getElementById("qcDet");
+  if (cap && cap.classList.contains("abierto")) { qcCerrarDetalle(true); e.stopImmediatePropagation(); }
+}, true);
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") qcCerrarDetalle(); });
+
+/* Toda la tarjeta abre el detalle, salvo los botones de sumar/restar. */
+document.addEventListener("click", function (e) {
+  var t = e.target;
+  if (!t.closest || !t.closest("#grid")) return;
+  if (t.closest("button:not([data-det])") || t.closest(".qc-acc") || t.closest(".qc-sueltas")) return;
+  if (t.closest(".qc-falta") || t.closest(".qc-activa")) return;
+  var card = t.closest(".qc[data-qc]");
+  if (card) window.QR.detalle(card.getAttribute("data-qc"));
+});
+
+/* ── Para la barra de abajo: promos activas y la más cercana ───── */
+window.QR.promoInfo = function () {
+  var activas = 0, cerca = null;
+  CATALOGO.forEach(function (p) {
+    var o = qcOferta(p);
+    if (!o) return;
+    var n = qcCajas(p);
+    if (n > 0 && o.aplica) activas++;
+    if (o.falta && (!cerca || o.falta < cerca.falta)) cerca = { falta: o.falta, nombre: p.nombre };
+  });
+  return { activas: activas, cerca: cerca, ofertas: qcOfertasN() };
+};
+
+/* Buscador: placeholder claro y una X visible para borrar. */
+(function () {
+  var s = document.getElementById("psearch");
+  if (!s || document.getElementById("qcBorrar")) return;
+  s.placeholder = "Buscar producto, marca o código…";
+  s.setAttribute("enterkeyhint", "search");
+  s.parentNode.classList.add("qc-sbar");
+  var x = document.createElement("button");
+  x.type = "button"; x.id = "qcBorrar"; x.hidden = true; x.setAttribute("aria-label", "Borrar búsqueda"); x.textContent = "✕";
+  x.onclick = function () { s.value = ""; filtrarProd(""); s.focus(); };
+  s.parentNode.appendChild(x);
+})();
+
 })();
 </script>
 <script>
@@ -9258,6 +9661,224 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
   body.ui2 #cvGrid{ display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 }
 
+/* Línea de ayuda de venta arriba del total de Queruclor (qr-tarjetas.js → QR.promoInfo). */
+.v2-bar-promo{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:12.5px; font-weight:700; line-height:1.25; margin-bottom:4px; color:#ffe7c2; white-space:normal; text-align:left; }
+.v2-bar-promo[hidden]{ display:none; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   QUERUCLOR — TARJETAS (ver qr-tarjetas.js)
+
+   Tres estados que se leen sin leer:
+     normal     → blanca
+     en pedido  → borde magenta + «✓ En pedido»
+     en oferta  → toda la tarjeta crema con borde dorado y cartel 🔥
+   Textos secundarios en gris OSCURO (#475569 como mínimo): al sol, el
+   gris claro desaparece. Botones de 48 px o más.
+   ═══════════════════════════════════════════════════════════════════ */
+#qrApp{
+  --qc-mag:#c2007a; --qc-mag2:#e5108a; --qc-mag-s:#fde7f3; --qc-mag-l:#f7b5d9;
+  --qc-tinta:#0f172a; --qc-gris:#475569; --qc-linea:#e2e8f0;
+  --qc-of:#fff7e6; --qc-of-borde:#f2c14e; --qc-naranja:#f05a14; --qc-naranja2:#ff8a1f;
+  --qc-ok:#15803d; --qc-ok-s:#dcfce7;
+}
+
+/* ── La grilla: 1 columna en celular, 2 en tablet, 3 en pantallas grandes ── */
+#qrApp #grid.grid{ display:grid !important; grid-template-columns:minmax(0,1fr); gap:10px;
+  padding:4px 0 calc(120px + env(safe-area-inset-bottom,0px)) !important; }
+/* Las columnas dependen del ancho REAL de la grilla (lo mide qr-tarjetas.js),
+   no de la pantalla: en la PC Queruclor vive en una columna angosta. */
+#qrApp #grid.grid[data-cols="2"]{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+#qrApp #grid.grid[data-cols="3"]{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+
+/* ── Tarjeta ─────────────────────────────────────────────────────── */
+#qrApp .qc{ position:relative; background:#fff; border:1.5px solid var(--qc-linea); border-radius:18px;
+  padding:12px; box-shadow:0 2px 8px rgba(15,23,42,.05); display:flex; flex-direction:column; gap:10px;
+  cursor:pointer; -webkit-tap-highlight-color:transparent; min-width:0; }
+#qrApp .qc.en-pedido{ border-color:var(--qc-mag-l); box-shadow:0 0 0 1px var(--qc-mag-l), 0 2px 10px rgba(194,0,122,.08); }
+#qrApp .qc.oferta{ background:var(--qc-of); border-color:var(--qc-of-borde); box-shadow:0 0 0 1px var(--qc-of-borde), 0 3px 12px rgba(240,90,20,.10); }
+#qrApp .qc.ns{ opacity:.6; }
+
+#qrApp .qc-of{ display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin:-2px 0 -2px; }
+#qrApp .qc-badge{ display:inline-flex; align-items:center; gap:4px; padding:5px 11px; border-radius:99px; color:#fff;
+  background:linear-gradient(135deg,var(--qc-naranja),var(--qc-naranja2)); font-size:12.5px; font-weight:800; letter-spacing:.03em; }
+#qrApp .qc-cond{ font-size:12.5px; font-weight:800; color:#b4410b; background:#ffe6c7; padding:5px 10px; border-radius:99px; }
+
+/* Tarjeta en grilla: nombre a lo ancho; foto a la izquierda; botón a la
+   derecha a la altura del precio; aviso de promo en franja completa. */
+#qrApp .qc{ display:grid; grid-template-columns:64px minmax(0,1fr) 138px;
+  grid-template-areas:"of of of" "img nom nom" "img det acc" "fa fa fa" "su su su"; column-gap:10px; row-gap:6px; align-content:start; padding:12px 12px 12px 10px; }
+#qrApp .qc-of{ grid-area:of; margin-bottom:2px; }
+#qrApp .qc-img{ grid-area:img; align-self:start; }
+#qrApp .qc-nom{ grid-area:nom; }
+#qrApp .qc-info{ grid-area:det; align-self:center; }
+#qrApp .qc-acc{ grid-area:acc; align-self:center; }
+#qrApp .qc-falta,#qrApp .qc-activa{ grid-area:fa; }
+#qrApp .qc-sueltas{ grid-area:su; }
+#qrApp .qc-img{ width:64px; height:64px; padding:3px; border:0; border-radius:12px; background:#f8fafc; cursor:zoom-in; display:block; overflow:hidden; }
+#qrApp .qc.oferta .qc-img{ background:#fff; }
+#qrApp .qc-img img{ width:100%; height:100%; object-fit:contain; display:block; }
+#qrApp .qc-info{ min-width:0; }
+#qrApp .qc-nom{ margin:0; font-size:16.5px; font-weight:800; line-height:1.22; color:var(--qc-tinta);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+#qrApp .qc-meta{ margin-top:2px; font-size:13px; font-weight:600; color:var(--qc-gris); }
+#qrApp .qc-precio{ display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; margin-top:6px; }
+#qrApp .qc-pu{ font-size:23px; font-weight:900; color:var(--qc-tinta); letter-spacing:-.01em; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#qrApp .qc-pu small{ font-size:13px; font-weight:700; color:var(--qc-gris); }
+#qrApp .qc-pu.promo{ color:var(--qc-mag); }
+#qrApp .qc-antes{ width:100%; font-size:14px; font-weight:700; color:#64748b; text-decoration:line-through; margin-bottom:-4px; }
+#qrApp .qc-caja{ font-size:14px; font-weight:600; color:var(--qc-gris); white-space:nowrap; font-variant-numeric:tabular-nums; }
+#qrApp .qc-prox{ margin-top:3px; font-size:13px; font-weight:600; color:#b4410b; }
+#qrApp .qc-prox b{ font-weight:800; }
+#qrApp .qc-ok{ white-space:nowrap; display:inline-flex; margin-top:6px; padding:3px 9px; border-radius:99px; background:var(--qc-ok-s); color:var(--qc-ok);
+  font-size:12.5px; font-weight:800; }
+#qrApp .qc-stk{ display:inline-block; margin-top:4px; padding:2px 8px; border-radius:6px; font-size:12px; font-weight:700; background:#f1f5f9; color:#334155; }
+#qrApp .qc-stk.poco,#qrApp .qc-stk.ultima{ background:#fef3c7; color:#92400e; }
+#qrApp .qc-stk.sin,#qrApp .qc-stk.no-inc{ background:#fee2e2; color:#991b1b; }
+#qrApp .qc-stk.suelto{ background:#e0f2fe; color:#075985; }
+
+/* ── Acción: AGREGAR o contador ──────────────────────────────────── */
+#qrApp .qc-acc{ display:flex; flex-direction:column; gap:8px; cursor:default; }
+#qrApp .qc-agregar{ width:100%; min-height:52px; padding:0 8px; border:0; border-radius:14px; cursor:pointer;
+  background:linear-gradient(135deg,var(--qc-mag2),var(--qc-mag)); color:#fff; font:inherit; font-size:15px; font-weight:800; letter-spacing:.04em;
+  box-shadow:0 4px 12px rgba(194,0,122,.25); }
+#qrApp .qc-agregar span{ font-size:20px; margin-left:4px; }
+#qrApp .qc-agregar:active{ filter:brightness(.93); }
+#qrApp .qc-agregar:disabled{ background:#e2e8f0; color:#64748b; box-shadow:none; cursor:default; }
+
+#qrApp .qc-step{ display:grid; grid-template-columns:42px minmax(0,1fr) 42px; align-items:center; min-height:52px;
+  border:2px solid var(--qc-mag-l); border-radius:16px; background:#fff; padding:2px; }
+#qrApp .qc-step button{ height:46px; border:0; border-radius:12px; cursor:pointer; font:inherit; font-size:28px; font-weight:700; line-height:1;
+  background:linear-gradient(135deg,var(--qc-mag2),var(--qc-mag)); color:#fff; }
+#qrApp .qc-step button:active{ filter:brightness(.92); }
+#qrApp .qc-step button:disabled{ background:#eef2f6; color:#94a3b8; }
+#qrApp .qc-n{ text-align:center; font-size:13px; font-weight:700; color:var(--qc-mag); white-space:nowrap; line-height:1.05; }
+#qrApp .qc-n b{ display:block; font-size:21px; font-weight:900; color:var(--qc-tinta); }
+#qrApp .qc-step.chico{ grid-template-columns:44px minmax(0,1fr) 44px; min-height:46px; }
+#qrApp .qc-step.chico button{ height:40px; font-size:24px; }
+#qrApp .qc-step.chico .qc-n b{ font-size:19px; }
+#qrApp .qc-step.grande{ grid-template-columns:62px minmax(0,1fr) 62px; min-height:62px; }
+#qrApp .qc-step.grande button{ height:56px; font-size:32px; }
+
+#qrApp .qc-falta{ display:flex; align-items:center; gap:9px; padding:9px 11px; border-radius:12px; background:#ffedd5; color:#9a3412;
+  font-size:13.5px; font-weight:600; line-height:1.3; }
+#qrApp .qc-falta b{ font-weight:800; }
+#qrApp .qc-falta-i{ width:16px; height:16px; flex:none; background:
+  linear-gradient(var(--qc-naranja),var(--qc-naranja)) 0 100%/4px 45% no-repeat,
+  linear-gradient(var(--qc-naranja),var(--qc-naranja)) 6px 100%/4px 70% no-repeat,
+  linear-gradient(var(--qc-naranja),var(--qc-naranja)) 12px 100%/4px 100% no-repeat; }
+#qrApp .qc-activa{ padding:8px 11px; border-radius:12px; background:var(--qc-ok-s); color:var(--qc-ok); font-size:13.5px; font-weight:800; }
+
+#qrApp .qc-fam{ width:100%; min-height:52px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px;
+  padding:6px 12px; border:2px solid var(--qc-mag-l); border-radius:14px; background:#fff; cursor:pointer; font:inherit; text-align:left; }
+#qrApp .qc-fam-n{ font-size:16px; font-weight:900; color:var(--qc-mag); white-space:nowrap; }
+#qrApp .qc-fam-d{ font-size:13px; font-weight:600; color:var(--qc-gris); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#qrApp .qc-fam-e{ font-size:13px; font-weight:800; color:var(--qc-mag); }
+
+#qrApp .qc-sueltas{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding-top:10px; border-top:1px dashed var(--qc-linea); cursor:default; }
+#qrApp .qc-s-lbl{ font-size:13px; font-weight:700; color:var(--qc-gris); }
+#qrApp .qc-s-lbl b{ color:var(--qc-tinta); }
+#qrApp .qc-sueltas .qc-step{ width:168px; flex:none; }
+
+/* Angosto (celular chico, o tarjetas en 2 columnas de tablet): el botón
+   pasa abajo, a lo ancho. */
+#qrApp #grid[data-tarjeta="angosta"] .qc{ grid-template-columns:60px minmax(0,1fr); grid-template-areas:"of of" "img nom" "img det" "acc acc" "fa fa" "su su"; }
+#qrApp #grid[data-tarjeta="angosta"] .qc-img{ width:60px; height:60px; }
+
+#qrApp .qc-vacio{ grid-column:1/-1; padding:34px 16px; text-align:center; color:var(--qc-gris); font-size:15px; font-weight:600; }
+
+/* ── Buscador y categorías (fijos arriba) ────────────────────────── */
+#qrApp .qc-sbar{ position:relative; }
+#qrApp #psearch{ padding-right:52px !important; }
+#qrApp #qcBorrar{ position:absolute; right:6px; top:50%; transform:translateY(-50%); width:42px; height:42px; border:0; border-radius:50%;
+  background:#f1f5f9; color:#334155; font-size:17px; font-weight:700; cursor:pointer; }
+#qrApp #qcBorrar[hidden]{ display:none; }
+#qrApp .ctab.qc-tab-of{ background:linear-gradient(135deg,var(--qc-naranja),var(--qc-naranja2)) !important; border-color:transparent !important; color:#fff !important; }
+#qrApp .ctab.qc-tab-of.active{ box-shadow:0 0 0 3px #ffd2b3; }
+#qrApp .qc-tab-n{ display:inline-grid; place-items:center; min-width:20px; height:20px; margin-left:4px; padding:0 6px; border-radius:99px;
+  background:#fff; color:var(--qc-naranja); font-size:12px; font-weight:900; }
+body.ui2 #qrApp .sbar{ position:sticky !important; top:var(--qc-top,64px); z-index:22; background:var(--v2-fondo,#f1f5f2);
+  padding:8px 14px 6px !important; margin:0 -14px !important; }
+body.ui2 #qrApp .cattabs{ top:calc(var(--qc-top,64px) + var(--qc-sbar,68px)) !important; }
+
+/* ── Detalle grande ─────────────────────────────────────────────── */
+#qcDet{ position:fixed; inset:0; z-index:1350; display:none; }
+#qcDet.abierto{ display:block; }
+#qcDet .qcd-fondo{ position:absolute; inset:0; background:rgba(15,23,42,.55); animation:qcdFondo .2s ease-out; }
+#qcDet .qcd-hoja{ position:absolute; left:0; right:0; bottom:0; height:70dvh; max-height:92dvh; min-height:60dvh;
+  background:#fff; border-radius:24px 24px 0 0; overflow-y:auto; overscroll-behavior:contain;
+  padding-bottom:0; animation:qcdSube .24s cubic-bezier(.2,.8,.3,1);
+  --qc-mag:#c2007a; --qc-mag2:#e5108a; --qc-mag-l:#f7b5d9; --qc-tinta:#0f172a; --qc-gris:#475569; --qc-linea:#e2e8f0;
+  --qc-naranja:#f05a14; --qc-naranja2:#ff8a1f; --qc-ok:#15803d; --qc-ok-s:#dcfce7;
+  font-family:inherit; color:var(--qc-tinta); }
+#qcDet .qcd-asa{ position:sticky; top:0; z-index:2; height:20px; margin-bottom:-20px; display:flex; justify-content:center; }
+#qcDet .qcd-asa::before{ content:''; width:44px; height:5px; border-radius:3px; background:#cbd5e1; margin-top:8px; }
+#qcDet .qcd-x{ position:absolute; top:10px; right:10px; z-index:3; width:44px; height:44px; border:0; border-radius:50%;
+  background:rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(15,23,42,.18); font-size:18px; font-weight:700; color:#0f172a; cursor:pointer; }
+#qcDet .qcd-img{ height:30dvh; min-height:150px; background:#f8fafc; display:block; padding:22px 16px 10px; overflow:hidden; }
+#qcDet .qcd-img img{ display:block; width:100%; height:100%; object-fit:contain; }
+#qcDet .qcd-body{ padding:14px 18px 6px; display:flex; flex-direction:column; gap:4px; }
+#qcDet h2{ margin:0; font-size:22px; font-weight:900; line-height:1.2; }
+#qcDet .qc-meta{ font-size:14.5px; font-weight:600; color:var(--qc-gris); }
+#qcDet .qc-precio{ display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 12px; margin-top:6px; }
+#qcDet .qc-pu{ font-size:30px; font-weight:900; font-variant-numeric:tabular-nums; }
+#qcDet .qc-pu small{ font-size:15px; font-weight:700; color:var(--qc-gris); }
+#qcDet .qc-pu.promo{ color:var(--qc-mag); }
+#qcDet .qc-antes{ width:100%; font-size:16px; font-weight:700; color:#64748b; text-decoration:line-through; }
+#qcDet .qc-caja{ font-size:16px; font-weight:600; color:var(--qc-gris); }
+#qcDet .qc-prox{ font-size:14.5px; font-weight:600; color:#b4410b; }
+#qcDet .qc-stk{ align-self:flex-start; margin-top:4px; padding:3px 9px; border-radius:6px; font-size:13px; font-weight:700; background:#f1f5f9; color:#334155; }
+#qcDet .qc-stk.poco,#qcDet .qc-stk.ultima{ background:#fef3c7; color:#92400e; }
+#qcDet .qc-stk.sin,#qcDet .qc-stk.no-inc{ background:#fee2e2; color:#991b1b; }
+#qcDet .qcd-of{ margin-top:10px; padding:12px 14px; border-radius:14px; background:#fff7e6; border:1.5px solid #f2c14e; }
+#qcDet .qcd-of-t{ font-size:15px; font-weight:900; color:#b4410b; }
+#qcDet .qcd-of-d{ margin-top:3px; font-size:14.5px; line-height:1.4; color:#7c2d12; }
+#qcDet .qcd-aromas{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+#qcDet .qcd-aromas span{ padding:4px 10px; border-radius:99px; background:#f1f5f9; font-size:13px; font-weight:600; color:#334155; }
+/* Los botones quedan SIEMPRE a la vista, pegados abajo: el detalle es para cargar. */
+#qcDet .qcd-acc{ display:flex; flex-direction:column; gap:10px; margin:14px -18px 0; padding:12px 18px calc(12px + env(safe-area-inset-bottom,0px));
+  position:sticky; bottom:0; z-index:2; background:#fff; box-shadow:0 -6px 16px rgba(15,23,42,.08); }
+#qcDet .qcd-tot{ margin-top:10px; font-size:15px; color:var(--qc-gris); }
+#qcDet .qcd-tot b{ color:var(--qc-tinta); font-size:17px; }
+/* Mismos botones que la tarjeta, más grandes (el detalle es para tomar el pedido cómodo). */
+#qcDet .qc-agregar{ width:100%; min-height:58px; border:0; border-radius:16px; cursor:pointer; font:inherit; font-size:17px; font-weight:800; letter-spacing:.04em;
+  background:linear-gradient(135deg,var(--qc-mag2),var(--qc-mag)); color:#fff; box-shadow:0 4px 12px rgba(194,0,122,.25); }
+#qcDet .qc-agregar:disabled{ background:#e2e8f0; color:#64748b; box-shadow:none; }
+#qcDet .qc-step{ display:grid; grid-template-columns:62px minmax(0,1fr) 62px; align-items:center; min-height:62px; border:2px solid var(--qc-mag-l); border-radius:18px; padding:2px; }
+#qcDet .qc-step button{ height:56px; border:0; border-radius:14px; cursor:pointer; font:inherit; font-size:32px; font-weight:700; background:linear-gradient(135deg,var(--qc-mag2),var(--qc-mag)); color:#fff; }
+#qcDet .qc-step button:disabled{ background:#eef2f6; color:#94a3b8; }
+#qcDet .qc-n{ text-align:center; font-size:18px; font-weight:700; color:var(--qc-mag); }
+#qcDet .qc-n b{ font-size:26px; font-weight:900; color:var(--qc-tinta); margin-right:4px; }
+#qcDet .qc-step.chico{ grid-template-columns:52px minmax(0,1fr) 52px; min-height:52px; }
+#qcDet .qc-step.chico button{ height:46px; font-size:26px; }
+#qcDet .qc-falta{ display:flex; align-items:center; gap:9px; padding:11px 13px; border-radius:12px; background:#ffedd5; color:#9a3412; font-size:14.5px; font-weight:600; }
+#qcDet .qc-falta-i{ width:16px; height:16px; flex:none; background:
+  linear-gradient(#f05a14,#f05a14) 0 100%/4px 45% no-repeat, linear-gradient(#f05a14,#f05a14) 6px 100%/4px 70% no-repeat, linear-gradient(#f05a14,#f05a14) 12px 100%/4px 100% no-repeat; }
+#qcDet .qc-activa{ padding:10px 13px; border-radius:12px; background:var(--qc-ok-s); color:var(--qc-ok); font-size:14.5px; font-weight:800; }
+#qcDet .qc-fam{ width:100%; min-height:58px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px; padding:6px 14px;
+  border:2px solid var(--qc-mag-l); border-radius:16px; background:#fff; cursor:pointer; font:inherit; text-align:left; }
+#qcDet .qc-fam-n{ font-size:17px; font-weight:900; color:var(--qc-mag); }
+#qcDet .qc-fam-d{ font-size:14px; font-weight:600; color:var(--qc-gris); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#qcDet .qc-fam-e{ font-size:14px; font-weight:800; color:var(--qc-mag); }
+#qcDet .qc-sueltas{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding-top:12px; border-top:1px dashed var(--qc-linea); }
+#qcDet .qc-s-lbl{ font-size:14px; font-weight:700; color:var(--qc-gris); }
+#qcDet .qc-sueltas .qc-step{ width:190px; flex:none; }
+/* Tablet y PC: ventana centrada, no hoja desde abajo. */
+@media (min-width:600px){
+  #qcDet .qcd-hoja{ left:50%; top:50%; bottom:auto; right:auto; transform:translate(-50%,-50%); width:min(560px,92vw);
+    height:auto; min-height:0; max-height:88dvh; border-radius:24px; animation:qcdAparece .2s ease-out; }
+  #qcDet .qcd-img{ height:min(40dvh,340px); }
+  #qcDet .qcd-asa{ display:none; }
+}
+@keyframes qcdSube{ from{ transform:translateY(100%); } to{ transform:none; } }
+@keyframes qcdAparece{ from{ opacity:0; transform:translate(-50%,-46%); } to{ opacity:1; transform:translate(-50%,-50%); } }
+@keyframes qcdFondo{ from{ opacity:0; } to{ opacity:1; } }
+html.qcd-sin-scroll, html.qcd-sin-scroll body{ overflow:hidden; }
+@media (prefers-reduced-motion:reduce){ #qcDet .qcd-hoja,#qcDet .qcd-fondo{ animation:none; } }
+
+/* ── Barra de abajo: ayuda de venta ─────────────────────────────── */
+.v2-promo{ display:none; }
+body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
+
 </style>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
@@ -9408,7 +10029,7 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
       </header>
 
       <button class="v2-bar" id="v2Bar" type="button">
-        <span class="v2-bar-txt"><span class="v2-bar-a" id="v2BarA">Tu pedido está vacío</span><span class="v2-bar-t" id="v2BarT">$0</span></span>
+        <span class="v2-bar-txt"><span class="v2-bar-promo" id="v2BarPromo" hidden></span><span class="v2-bar-a" id="v2BarA">Tu pedido está vacío</span><span class="v2-bar-t" id="v2BarT">$0</span></span>
         <span class="v2-bar-go">VER PEDIDO →</span>
       </button>
 
@@ -9931,7 +10552,14 @@ body.ui2[data-v2="queruclor"]{ --v2-acento:var(--v2-mag); --v2-acento-2:var(--v2
         barra.classList.toggle("vacia", !carrito.length);
         $("v2BarA").textContent = carrito.length ? `${carrito.length} producto${carrito.length === 1 ? "" : "s"} · ${cajas} caja${cajas === 1 ? "" : "s"}` : "Tu pedido está vacío";
         $("v2BarT").textContent = carrito.length ? total : "$0";
+        /* Ayuda de venta: lo que falta para una promo, o cuántas se activaron. */
+        const pi = seguro(() => QR.promoInfo && QR.promoInfo()) || {};
+        const pr = $("v2BarPromo");
+        const txt = pi.cerca ? "🟠 Agregá " + pi.cerca.falta + " caja" + (pi.cerca.falta === 1 ? "" : "s") + " de " + pi.cerca.nombre + " y activás la promo"
+          : pi.activas ? "🔥 Tenés " + pi.activas + " promoci" + (pi.activas === 1 ? "ón activada" : "ones activadas") : "";
+        pr.textContent = txt; pr.hidden = !txt;
       } else {
+        $("v2BarPromo").hidden = true;
         barra.classList.toggle("vacia", !t.n);
         $("v2BarA").textContent = t.n ? `${t.n} producto${t.n === 1 ? "" : "s"}${t.sinPrecio ? " · " + t.sinPrecio + " sin precio" : ""}` : "Tu pedido está vacío";
         $("v2BarT").textContent = t.n ? (t.sub ? money(t.total) + (t.sinPrecio ? " +" : "") : "—") : "$0";   // «+» = hay renglones sin precio que no suman
