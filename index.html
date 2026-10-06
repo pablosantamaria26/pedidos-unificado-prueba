@@ -9784,6 +9784,24 @@ body.ui2 .v2c-ok{ flex:none; width:40px; height:40px; border-radius:50%; display
 body.ui2 .v2c-dato{ font-size:11.5px; font-weight:800; color:#b91c1c; }
 body.ui2 .v2-sheet .ac-toggle{ border-radius:14px; padding:14px; font-size:14px; margin-top:4px; }
 
+/* ═══ HOJA DE CLIENTE en un solo movimiento (oct-2026) ═══════════════
+   Alto fijo desde el primer cuadro: ni la lista ni el teclado la hacen
+   saltar. El campo queda arriba, así el teclado nunca lo tapa. */
+body.ui2 #v2CliBg .v2-sheet{ height:calc(100vh - 28px); height:calc(100dvh - 28px - env(safe-area-inset-top,0px)); max-height:none;
+  display:flex; flex-direction:column; overflow:hidden; padding-bottom:0; }
+body.ui2 #v2CliBg #v2CliSlot{ flex:1; min-height:0; display:flex; flex-direction:column; }
+body.ui2 #v2CliBg .ac-wrap{ flex:1; min-height:0; display:flex; flex-direction:column; margin:0; }
+body.ui2 #v2CliBg #clienteDropdown{ flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
+  padding-bottom:calc(24px + env(safe-area-inset-bottom,0px)); display:block !important; }
+body.ui2 #v2CliBg #infoCliente{ flex:none; max-height:30%; overflow-y:auto; }
+body.ui2 #v2CliBg.abierto{ animation:v2CliFondo .18s ease-out; }
+body.ui2 #v2CliBg.abierto .v2-sheet{ animation:v2CliSube .24s cubic-bezier(.2,.8,.3,1); }
+@keyframes v2CliFondo{ from{ background:rgba(15,23,42,0); } to{ background:rgba(15,23,42,.5); } }
+@keyframes v2CliSube{ from{ transform:translateY(40px); opacity:.4; } to{ transform:none; opacity:1; } }
+@media (prefers-reduced-motion:reduce){ body.ui2 #v2CliBg.abierto, body.ui2 #v2CliBg.abierto .v2-sheet{ animation:none; } }
+
+body.ui2 #v2CliBg #clienteDropdown > .ac-header{ min-height:0; }
+
 /* ═══════════════════════════════════════════════════════════════════
    QUERUCLOR — TARJETAS (ver qr-tarjetas.js)
 
@@ -10272,8 +10290,13 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   /* ═══ HOJA DE CLIENTE ═══════════════════════════════════════════ */
   function abrirCliente(alElegir) {
     S.alElegir = alElegir || null; S.cliAlAbrir = clienteId(); S.cliAbierta = true;
+    /* En UN solo tramo: la lista ya dibujada, la hoja con su alto final y el
+       foco en el mismo toque (así el teclado abre junto con la hoja). Antes
+       aparecía chica, 0,12 s después crecía con la lista y el teclado la
+       volvía a empujar: se veía en dos o tres saltos. */
+    seguro(() => showAutocomplete("", { autoSelect: false }));
     $("v2CliBg").classList.add("abierto");
-    setTimeout(() => { seguro(() => { $("numeroCliente").focus(); $("numeroCliente").select(); }); }, 120);
+    seguro(() => { const i = $("numeroCliente"); i.focus({ preventScroll: true }); i.select(); });
   }
   function cerrarCliente() {
     if (!S.cliAbierta) return;
@@ -10840,7 +10863,14 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   function enganchar() {
     /* Elegir el cliente cierra la hoja enseguida: antes esperaba al repintado
        periódico y tardaba hasta un segundo y medio. */
-    seguro(() => { const o = selectCliente; window.selectCliente = function () { const r = o.apply(this, arguments); refrescar(); return r; }; });
+    seguro(() => { const o = selectCliente; window.selectCliente = function () {
+      const r = o.apply(this, arguments);
+      /* Tocar un cliente cierra la hoja SIEMPRE, también si es el mismo que
+         ya estaba (antes esperaba a que «cambiara» y tardaba más de un segundo). */
+      if (S.cliAbierta && MQ.matches) { S.cliAlAbrir = clienteId(); setTimeout(() => { if (S.cliAbierta) clienteElegido(); }, 150); }
+      refrescar();
+      return r;
+    }; });
     seguro(() => { const o = cvRenderGrid; window.cvRenderGrid = function () { if (MQ.matches) pintarLista(); else o.apply(this, arguments); }; });
     seguro(() => { const o = actualizarBadgeRenglones; window.actualizarBadgeRenglones = function () { const r = o.apply(this, arguments); refrescarPronto(); return r; }; });
     seguro(() => {
@@ -10904,6 +10934,16 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
         (c.corrupted ? '<span class="v2c-dato">Revisar datos de este cliente</span>' : "") +
         '</div>' + der + '</div>';
     };
+    /* Selección automática SOLO con el número exacto. Con nombres elegía solo
+       a mitad de palabra ("su…" con un único resultado en la cartera), cerraba
+       la hoja y lo que se seguía tecleando quedaba pegado al número. */
+    const origShow = window.showAutocomplete;
+    if (typeof origShow === "function") window.showAutocomplete = function (q, opts) {
+      if (!MQ.matches || !opts || !opts.autoSelect) return origShow.apply(this, arguments);
+      const t = String(q || "").trim();
+      if (/^\d+$/.test(t) && clientNames[t]) { selectCliente(t); return; }
+      return origShow.call(this, q, Object.assign({}, opts, { autoSelect: false }));
+    };
     /* X para borrar lo escrito, dentro del campo */
     const inp = $("numeroCliente");
     if (inp && !$("v2CliX")) {
@@ -10913,7 +10953,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       x.onmousedown = e => { e.preventDefault(); inp.value = ""; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.focus(); };
       inp.after(x);
       inp.addEventListener("input", () => { x.hidden = !inp.value; });
-      inp.setAttribute("placeholder", "N° de cliente, nombre o dirección");
+      inp.setAttribute("placeholder", "Número, nombre o dirección");
     }
   })();
 
