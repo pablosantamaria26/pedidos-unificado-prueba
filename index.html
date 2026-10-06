@@ -10300,9 +10300,21 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   }
   function cerrarCliente() {
     if (!S.cliAbierta) return;
+    const previo = S.cliAlAbrir || "";
     S.cliAbierta = false; S.alElegir = null;
     $("v2CliBg").classList.remove("abierto");
     seguro(() => $("numeroCliente").blur());
+    /* Cerrar sin elegir deja TODO como estaba: si se había escrito algo a
+       medias («sup»), se vuelve al cliente que había (o a ninguno). Antes
+       quedaba el texto en el campo y se perdía el cliente cargado. */
+    setTimeout(() => {
+      const inp = $("numeroCliente"), v = inp.value.trim();
+      if (v && clientNames[v]) return;
+      inp.value = previo;
+      seguro(() => hideAutocomplete());
+      seguro(() => updateClientUI(previo));
+      refrescar();
+    }, 200);
   }
   function clienteElegido() {
     const cb = S.alElegir;
