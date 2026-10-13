@@ -5732,7 +5732,23 @@ body{ padding-bottom:22px; }
     return { estado: "actualizado", total: Object.keys(datos.productos).length };
   }
 
+  /* Habilitar / deshabilitar para los vendedores. Queda en la ficha y viaja
+     con la publicación; una lista nueva NO lo pisa (aplicar conserva lo
+     que la lista no trae). Ver catalogo-vendedor.js. */
+  function setVendible(eans, valor) {
+    const cat = leer();
+    let n = 0;
+    for (const e of [].concat(eans)) {
+      const f = cat[String(e)];
+      if (!f) continue;
+      f.vendible = !!valor; f.vendibleEn = new Date().toISOString(); n++;
+    }
+    if (n) guardar(cat);
+    return n;
+  }
+
   global.Catalogo = {
+    setVendible,
     COL, precioVenta, desdeLista, comparar, aplicar,
     buscar, todos, cuantos, historial, meta, sembrar, recalcularMargen,
     margenesRubro, setMargenRubro, margenDe, rubroDe, rubros,
@@ -5761,6 +5777,160 @@ body{ padding-bottom:22px; }
   }).catch(e => { console.warn("[catálogo] error al traer:", e); return { estado: "error" }; });
   if (typeof module !== "undefined" && module.exports) module.exports = global.Catalogo;
 
+})(typeof window !== "undefined" ? window : globalThis);
+
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   QUÉ VE EL VENDEDOR DE QUERUCLOR
+
+   La app del vendedor trae 56 artículos «curados» a mano (nombre corto,
+   categoría, familias de aromas). La lista del proveedor tiene 202. Desde
+   oct-2026 la app muestra TODOS los de la lista, pero solo los que el
+   admin dejó HABILITADOS: así, el día que se compra algo nuevo, se activa
+   en el admin y al vendedor le aparece solo.
+
+   · Lo curado se respeta tal cual (fotos, familias, nombres).
+   · Lo que no está curado se arma solo desde la lista: un artículo simple
+     por código, nombre corto y categoría deducidos del nombre.
+   · Habilitado = campo `vendible` del catálogo compartido (lo cambia el
+     admin y viaja con la publicación). Si un artículo nunca se tocó, vale
+     el arranque: habilitados los del PRIMER PEDIDO (v5, 13/10/2026).
+
+   Sin dependencias: se usa en la app del vendedor, en el admin y en Node
+   (catalogo-vendedor-test.js).
+   ═══════════════════════════════════════════════════════════════════ */
+(function (raiz) {
+  "use strict";
+
+  /* Primer pedido a Queruclor (Pedido_Queruclor_Final_v5.xlsx). El
+     detergente Vencedor 500 falta: no está en la lista de junio, aparece
+     cuando la lista del proveedor lo traiga. */
+  const PRIMER_PEDIDO = new Set([
+    "7791905023203", "7791905023210", "7791905000020", "7791905000037", "7791905024248", "7791905003663",
+    "7791905024811", "7791905024828",
+    "7791905023951", "7791905023890", "7791905023876", "7791905023845", "7791905023968", "7791905023852",
+    "7791905001393", "7791905003328", "7791905003366", "7791905003861", "7791905003847",
+    "7791905000921", "7791905003373", "7791905000426",
+    "7791905004486", "7791905023036", "7791905004387", "7791905004400", "7791905004363",
+    "7791905002383", "7791905002345", "7791905002376", "7791905002390", "7791905023784",
+    "7791905004516", "7791905004554", "7791905004424",
+  ]);
+
+  function vendible(ficha, ean) {
+    if (ficha && typeof ficha.vendible === "boolean") return ficha.vendible;
+    return PRIMER_PEDIDO.has(String(ean));
+  }
+
+  /* Categorías de la app del vendedor (las pestañas). Las tres últimas son
+     nuevas: solo aparecen cuando hay algo habilitado ahí. */
+  const CATS = [
+    ["LAVANDINAS", /LAVANDINA/],
+    ["LIMPIAPISOS", /LIQUIDO LIMPIADOR|DESODORANTE DE PISO/],
+    ["DETERGENTES", /DETERGENTE|LAVAVAJILLA/],
+    ["LAVARROPAS", /LAVAR ROPA|POLVO PARA LAVAR|SUAVIZANTE|PERFUMANTE PARA ROPA|QUITAMANCHAS|JABON (EN PAN|LIQUIDO) PARA (LA )?ROPA/],
+    ["INSECTICIDAS", /INSECTICIDA|ESPIRAL|TABLETA|REPELENTE|CEBO|APARATO|MOSQUI|CUCA/],
+    ["DESINFECTANTES", /DESINFECTANTE|ALCOHOL/],
+    ["LIMPIADORES", /LIMPIA |LIMPIADOR|CREMOSO|POLVO LIMPIADOR/],
+    ["AMBIENTE", /AROMATIZADOR|DESODORANTE DE AMBIENTES|AROMATIZANTE/],
+    ["PERFUMERIA", /ANTITRANSPIRANTE|FRAGANCIA|DESODORANTE AEROSOL|TALCO|JABON|SHAMPOO|ACONDICIONADOR|CREMA|TOALLITAS/],
+  ];
+  function categoria(nombreCompleto) {
+    const n = String(nombreCompleto || "").toUpperCase();
+    for (const [cat, re] of CATS) if (re.test(n)) return cat;
+    return "OTROS";
+  }
+
+  /* «LIQUIDO PARA LAVAR ROPA X 1.5 L BOT NETIC CAJA X 6» →
+     «Líquido para lavar ropa 1,5 L bot Netic». */
+  const TILDES = { LIQUIDO: "Líquido", JABON: "Jabón", LIMON: "Limón", BEBE: "Bebé", BAÑO: "Baño", ALGODON: "Algodón",
+    COTILLON: "Cotillón", VALVULA: "Válvula", PEDICO: "Pédico", BOTANICO: "Botánico", QUERUBIN: "Querubín", CITRICAS: "Cítricas" };
+  const UNIDAD = { ML: "ml", L: "L", G: "g", GRS: "g", KG: "kg", U: "u" };
+  const CORTAS = new Set(["DE", "DEL", "LA", "LAS", "EL", "LOS", "PARA", "EN", "CON", "Y", "A", "POR"]);
+  function nombreCorto(nombreCompleto) {
+    let s = String(nombreCompleto || "").replace(/\s+CAJA( X)?\s*\d+(\s*X\s*\d+)?\s*$/i, "").replace(/\s+/g, " ").trim();
+    s = s.replace(/ X (\d+(?:[.,]\d+)?) ?(ML|L|G|GRS|KG|U)\b/gi, (m, n, u) => " " + n.replace(".", ",") + " " + UNIDAD[u.toUpperCase()]);
+    return s.split(" ").map((w, i) => {
+      const W = w.toUpperCase();
+      if (TILDES[W]) return TILDES[W];
+      if (/\d/.test(w)) return w;
+      if (i && CORTAS.has(W)) return W.toLowerCase();
+      const p = W.charAt(0) + W.slice(1).toLowerCase();
+      return p.replace(/cion$/, "ción");                     // Nutrición, Reparación, Acción, Duración
+    }).join(" ").replace(/^Agua lavandina/i, "Lavandina");
+  }
+
+  /* Los EAN que ya cubre lo curado (un producto, o una variante de familia). */
+  function eanesCurados(curado) {
+    const s = new Set();
+    for (const p of curado) {
+      if (p.tipo === "familia") (p.variantes || []).forEach(v => s.add(String(v.ean)));
+      else s.add(String(p.ean));
+    }
+    return s;
+  }
+
+  /* Arma el catálogo del vendedor.
+       curado     → el CATALOGO escrito a mano de la app
+       fichas     → Catalogo.todos() (la lista del proveedor, con `vendible`)
+       opc.todos  → true en el admin: devuelve todo, con `_habilitado`
+     Devuelve objetos NUEVOS para lo automático y los MISMOS objetos
+     curados (la app les pisa precios en el lugar), filtrando variantes. */
+  function armar(curado, fichas, opc) {
+    opc = opc || {};
+    const porEan = {};
+    for (const f of fichas || []) if (f && f.ean) porEan[String(f.ean)] = f;
+    const hab = ean => vendible(porEan[String(ean)], ean);
+    const out = [];
+
+    for (const p of curado) {
+      if (p.tipo === "familia") {
+        if (!p._todas) p._todas = (p.variantes || []).slice();       // las variantes originales, una sola vez
+        const vis = p._todas.filter(v => hab(v.ean));
+        if (opc.todos) { p.variantes = p._todas.slice(); p._habilitado = vis.length > 0; out.push(p); continue; }
+        if (!vis.length) continue;
+        p.variantes = vis;
+        out.push(p);
+      } else {
+        const h = hab(p.ean);
+        if (opc.todos) { p._habilitado = h; out.push(p); continue; }
+        if (h) out.push(p);
+      }
+    }
+
+    const cubiertos = eanesCurados(curado);
+    const auto = [];
+    for (const f of fichas || []) {
+      const ean = String(f.ean || "");
+      if (!ean || cubiertos.has(ean) || f.activo === false) continue;   // fuera de la lista del proveedor: no se ofrece
+      const h = hab(ean);
+      if (!h && !opc.todos) continue;
+      const uc = Number(f.uc) || 1;
+      auto.push({
+        tipo: "producto", ean, auto: true,
+        nombre: nombreCorto(f.nombreCompleto), marca: String(f.marca || "").toUpperCase(),
+        cat: categoria(f.nombreCompleto), uc,
+        precioUnit: f.precioUnit || 0, precioBulto: f.precioBulto || Math.round((f.precioUnit || 0) * uc * 100) / 100,
+        costoNeto: f.costoNeto || 0,
+        _habilitado: opc.todos ? h : undefined,
+      });
+    }
+    auto.sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
+    return out.concat(auto);
+  }
+
+  /* Para mostrar en el admin: «35 de 202 habilitados». */
+  function resumen(curado, fichas) {
+    const todos = new Set((fichas || []).filter(f => f.activo !== false).map(f => String(f.ean)));
+    eanesCurados(curado).forEach(e => todos.add(e));
+    const porEan = {}; (fichas || []).forEach(f => { porEan[String(f.ean)] = f; });
+    let hab = 0; todos.forEach(e => { if (vendible(porEan[e], e)) hab++; });
+    return { total: todos.size, habilitados: hab };
+  }
+
+  const api = { armar, vendible, categoria, nombreCorto, resumen, PRIMER_PEDIDO };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else raiz.QRVendedor = api;
 })(typeof window !== "undefined" ? window : globalThis);
 
 </script>
@@ -7021,17 +7191,31 @@ const CLIENTES = [
   {id:'10007',nombre:'LIMPIEZA TOTAL',dir:'Independencia 222',loc:'Balcarce'},
   {id:'10008',nombre:'MAXIKIOSCO FELICITAS',dir:'Díaz Vélez 890',loc:'Mar del Plata'},
 ];
-const CATALOGO = [{"tipo":"producto","ean":"7791905024248","nombre":"Lavandina Aditivada En Gel 700ml","marca":"ODEX","cat":"LAVANDINAS","uc":18,"precioUnit":1733.15,"precioBulto":31196.7,"costoNeto":1095.75},{"tipo":"producto","ean":"7791905024057","nombre":"Lavandina Aditivada Lavanda 1L","marca":"ODEX","cat":"LAVANDINAS","uc":15,"precioUnit":1065.28,"precioBulto":15979.2,"costoNeto":673.51},{"tipo":"producto","ean":"7791905024064","nombre":"Lavandina Aditivada Lavanda 2L","marca":"ODEX","cat":"LAVANDINAS","uc":8,"precioUnit":1965.45,"precioBulto":15723.6,"costoNeto":1242.62},{"tipo":"producto","ean":"7791905024071","nombre":"Lavandina Aditivada Lavanda 4L","marca":"ODEX","cat":"LAVANDINAS","uc":3,"precioUnit":3850.79,"precioBulto":11552.37,"costoNeto":2434.59},{"tipo":"producto","ean":"7791905003663","nombre":"Lavandina Aditivada Ropa Blanca 1L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":15,"precioUnit":1295.37,"precioBulto":19430.55,"costoNeto":818.97},{"tipo":"producto","ean":"7791905000723","nombre":"Lavandina Aditivada Ropa Blanca 2L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":8,"precioUnit":2449.23,"precioBulto":19593.84,"costoNeto":1548.48},{"tipo":"producto","ean":"7791905023203","nombre":"Lavandina Común 1L","marca":"ODEX","cat":"LAVANDINAS","uc":15,"precioUnit":856.47,"precioBulto":12847.05,"costoNeto":541.49},{"tipo":"producto","ean":"7791905023210","nombre":"Lavandina Común 2L","marca":"ODEX","cat":"LAVANDINAS","uc":8,"precioUnit":1633.63,"precioBulto":13069.04,"costoNeto":1032.83},{"tipo":"producto","ean":"7791905023227","nombre":"Lavandina Común 4L","marca":"ODEX","cat":"LAVANDINAS","uc":3,"precioUnit":3194.06,"precioBulto":9582.18,"costoNeto":2019.39},{"tipo":"producto","ean":"7791905000020","nombre":"Lavandina Concentrada 1L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":15,"precioUnit":1042.16,"precioBulto":15632.4,"costoNeto":658.89},{"tipo":"producto","ean":"7791905000037","nombre":"Lavandina Concentrada 2L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":8,"precioUnit":2008.82,"precioBulto":16070.56,"costoNeto":1270.04},{"tipo":"producto","ean":"7791905000372","nombre":"Lavandina Concentrada 4L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":3,"precioUnit":3872.75,"precioBulto":11618.25,"costoNeto":2448.48},{"tipo":"producto","ean":"7791905023791","nombre":"Limpiapisos Amoniaco 900ml","marca":"ODEX","cat":"LIMPIAPISOS","uc":12,"precioUnit":1505.61,"precioBulto":18067.32,"costoNeto":951.9},{"tipo":"familia","familiaKey":"limpiapisos-odex-1800","nombre":"Limpiapisos ODEX 1800ml","marca":"ODEX","cat":"LIMPIAPISOS","uc":6,"precioUnit":1583.52,"precioBulto":9501.12,"imagenPrincipal":"7791905023852","variantes":[{"ean":"7791905023852","nombre":"Amanecer Marino"},{"ean":"7791905023883","nombre":"Bebé"},{"ean":"7791905023906","nombre":"Bosque"},{"ean":"7791905023937","nombre":"Floral"},{"ean":"7791905023968","nombre":"Lavanda"},{"ean":"7791905023999","nombre":"Limón"}]},{"tipo":"familia","familiaKey":"limpiapisos-odex-4l","nombre":"Limpiapisos ODEX 4L","marca":"ODEX","cat":"LIMPIAPISOS","uc":3,"precioUnit":4188.83,"precioBulto":12566.49,"imagenPrincipal":"7791905023869","variantes":[{"ean":"7791905023869","nombre":"Amanecer Marino"},{"ean":"7791905024019","nombre":"Bebé"},{"ean":"7791905023944","nombre":"Floral"},{"ean":"7791905023975","nombre":"Lavanda"},{"ean":"7791905024002","nombre":"Limón"}]},{"tipo":"familia","familiaKey":"limpiapisos-odex-900","nombre":"Limpiapisos ODEX 900ml","marca":"ODEX","cat":"LIMPIAPISOS","uc":12,"precioUnit":944.32,"precioBulto":11331.84,"imagenPrincipal":"7791905023845","variantes":[{"ean":"7791905023845","nombre":"Amanecer Marino"},{"ean":"7791905023876","nombre":"Bebé"},{"ean":"7791905023890","nombre":"Bosque"},{"ean":"7791905023920","nombre":"Floral"},{"ean":"7791905023951","nombre":"Lavanda"},{"ean":"7791905023982","nombre":"Limón"}]},{"tipo":"producto","ean":"7791905024811","nombre":"Detergente Ultra Limón 250ml","marca":"ODEX","cat":"DETERGENTES","uc":12,"precioUnit":1220.32,"precioBulto":14643.84,"costoNeto":771.53},{"tipo":"producto","ean":"7791905024828","nombre":"Detergente Ultra Limón 500ml","marca":"ODEX","cat":"DETERGENTES","uc":12,"precioUnit":2153.29,"precioBulto":25839.48,"costoNeto":1361.38},{"tipo":"producto","ean":"7791905024835","nombre":"Detergente Ultra Limón 750ml","marca":"ODEX","cat":"DETERGENTES","uc":12,"precioUnit":3015.35,"precioBulto":36184.2,"costoNeto":1906.4},{"tipo":"producto","ean":"7791905023548","nombre":"Lavavajillas Biodegradable 750ml","marca":"VENCEDOR","cat":"DETERGENTES","uc":12,"precioUnit":1192.71,"precioBulto":14312.52,"costoNeto":754.07},{"tipo":"producto","ean":"7791905003328","nombre":"Líquido Lavar Ropa 1.5L Botella","marca":"QUERUBIN","cat":"LAVARROPAS","uc":6,"precioUnit":3364.73,"precioBulto":20188.38,"costoNeto":2127.29},{"tipo":"producto","ean":"7791905003366","nombre":"Líquido Lavar Ropa 3L D-Pack","marca":"QUERUBIN","cat":"LAVARROPAS","uc":4,"precioUnit":7390.07,"precioBulto":29560.28,"costoNeto":4672.23},{"tipo":"producto","ean":"7791905003878","nombre":"Líquido Lavar Ropa 3L D-Pack","marca":"NETIC","cat":"LAVARROPAS","uc":4,"precioUnit":4408.91,"precioBulto":17635.64,"costoNeto":2787.45},{"tipo":"producto","ean":"7791905003311","nombre":"Líquido Lavar Ropa 800ml Botella","marca":"QUERUBIN","cat":"LAVARROPAS","uc":12,"precioUnit":2457.85,"precioBulto":29494.2,"costoNeto":1553.93},{"tipo":"producto","ean":"7791905003830","nombre":"Líquido Lavar Ropa 800ml Botella","marca":"NETIC","cat":"LAVARROPAS","uc":12,"precioUnit":1513.37,"precioBulto":18160.44,"costoNeto":956.8},{"tipo":"producto","ean":"7791905001393","nombre":"Líquido Lavar Ropa 800ml D-Pack","marca":"QUERUBIN","cat":"LAVARROPAS","uc":12,"precioUnit":2386.93,"precioBulto":28643.16,"costoNeto":1509.09},{"tipo":"producto","ean":"7791905003861","nombre":"Líquido Lavar Ropa 800ml D-Pack","marca":"NETIC","cat":"LAVARROPAS","uc":12,"precioUnit":1500.17,"precioBulto":18002.04,"costoNeto":948.46},{"tipo":"producto","ean":"7791905002789","nombre":"Polvo Lavar Baja Espuma 3kg","marca":"QUERUBIN","cat":"LAVARROPAS","uc":1,"precioUnit":9268.97,"precioBulto":9268.97,"costoNeto":5860.13},{"tipo":"producto","ean":"7791905001614","nombre":"Polvo Lavar Baja Espuma 400g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":30,"precioUnit":1311.91,"precioBulto":39357.3,"costoNeto":829.43},{"tipo":"producto","ean":"7791905001621","nombre":"Polvo Lavar Baja Espuma 800g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":24,"precioUnit":2624.03,"precioBulto":62976.72,"costoNeto":1659},{"tipo":"producto","ean":"7791905003823","nombre":"Polvo Lavar Regular 1.5kg","marca":"QUERUBIN","cat":"LAVARROPAS","uc":12,"precioUnit":4673.28,"precioBulto":56079.36,"costoNeto":2954.59},{"tipo":"producto","ean":"7791905002819","nombre":"Polvo Lavar Regular 3kg","marca":"QUERUBIN","cat":"LAVARROPAS","uc":1,"precioUnit":9268.97,"precioBulto":9268.97,"costoNeto":5860.13},{"tipo":"producto","ean":"7791905001645","nombre":"Polvo Lavar Regular 400g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":30,"precioUnit":1311.91,"precioBulto":39357.3,"costoNeto":829.43},{"tipo":"producto","ean":"7791905001652","nombre":"Polvo Lavar Regular 800g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":24,"precioUnit":2624.03,"precioBulto":62976.72,"costoNeto":1659},{"tipo":"producto","ean":"7791905022749","nombre":"Suavizante Celeste D-Pack 3L","marca":"WOODY","cat":"LAVARROPAS","uc":4,"precioUnit":4867.64,"precioBulto":19470.56,"costoNeto":3077.48},{"tipo":"producto","ean":"7791905000426","nombre":"Suavizante Celeste D-Pack 900ml","marca":"WOODY","cat":"LAVARROPAS","uc":12,"precioUnit":1625.13,"precioBulto":19501.56,"costoNeto":1027.46},{"tipo":"familia","familiaKey":"limpiador-pack-odex-450","nombre":"Limpiador Doy Pack ODEX 450ml","marca":"ODEX","cat":"LIMPIADORES","uc":24,"precioUnit":1318.93,"precioBulto":31654.32,"imagenPrincipal":"7791905004387","varNombre":"producto","variantes":[{"ean":"7791905004387","nombre":"Antigrasa"},{"ean":"7791905004363","nombre":"Vidrios"}]},{"tipo":"familia","familiaKey":"limpiador-gatillo-odex-500","nombre":"Limpiador Gatillo ODEX 500ml","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2561.6,"precioBulto":30739.2,"imagenPrincipal":"7791905004394","varNombre":"producto","variantes":[{"ean":"7791905004394","nombre":"Antigrasa"},{"ean":"7791905004370","nombre":"Vidrios"}]},{"tipo":"producto","ean":"7791905004400","nombre":"Limpia Baño Doy Pack 450ml","marca":"ODEX","cat":"LIMPIADORES","uc":24,"precioUnit":1318.93,"precioBulto":31654.32,"costoNeto":833.87},{"tipo":"producto","ean":"7791905004417","nombre":"Limpia Baño Gatillo 500ml","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2561.6,"precioBulto":30739.2,"costoNeto":1619.52},{"tipo":"producto","ean":"7791905023036","nombre":"Limpiador Cremoso Original 500ml","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2303.84,"precioBulto":27646.08,"costoNeto":1456.56},{"tipo":"producto","ean":"7791905004486","nombre":"Polvo Limpiador Original 400g","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2161.18,"precioBulto":25934.16,"costoNeto":1366.36},{"tipo":"familia","familiaKey":"desinfectante-aerosol-odex","nombre":"Desinfectante Aerosol ODEX 360ml","marca":"ODEX","cat":"DESINFECTANTES","uc":12,"precioUnit":2679.65,"precioBulto":32155.8,"imagenPrincipal":"7791905004516","variantes":[{"ean":"7791905004516","nombre":"Original"},{"ean":"7791905004523","nombre":"Lavanda"},{"ean":"7791905004530","nombre":"Bebé"}]},{"tipo":"producto","ean":"7791905002413","nombre":"Cebo Mata Cucaracha x8","marca":"CUCA TRAP","cat":"INSECTICIDAS","uc":24,"precioUnit":7869.6,"precioBulto":188870.4,"costoNeto":4975.41},{"tipo":"producto","ean":"7791905002338","nombre":"Espiral Mata Mosquitos Perfumados x12","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":48,"precioUnit":1984.77,"precioBulto":95268.96,"costoNeto":1254.83},{"tipo":"producto","ean":"7791905002383","nombre":"Espiral Mata Mosquitos x12","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":48,"precioUnit":1826.77,"precioBulto":87684.96,"costoNeto":1154.94},{"tipo":"producto","ean":"7791905002390","nombre":"Insecticida Mata Cucarachas 380ml","marca":"CUCA TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":3646.16,"precioBulto":43753.92,"costoNeto":2305.22},{"tipo":"producto","ean":"7791905023265","nombre":"Insecticida Mata Cucarachas Ultra 380ml","marca":"CUCA TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":4059.56,"precioBulto":48714.72,"costoNeto":2566.58},{"tipo":"producto","ean":"7791905002376","nombre":"Insecticida Mata Moscas/Mosquitos 370ml","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":3311.43,"precioBulto":39737.16,"costoNeto":2093.59},{"tipo":"producto","ean":"7791905023258","nombre":"Insecticida Mata Moscas/Mosquitos Ultra 370ml","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":3643.32,"precioBulto":43719.84,"costoNeto":2303.42},{"tipo":"producto","ean":"7791905023784","nombre":"Repelente Mosquitos 143ml","marca":"AKTIOL","cat":"INSECTICIDAS","uc":12,"precioUnit":2799.88,"precioBulto":33598.56,"costoNeto":1770.17},{"tipo":"producto","ean":"7791905024897","nombre":"Repelente Mosquitos 165ml","marca":"AKTIOL","cat":"INSECTICIDAS","uc":12,"precioUnit":3443.85,"precioBulto":41326.2,"costoNeto":2177.31},{"tipo":"producto","ean":"7791905002345","nombre":"Tableta Mata Mosquitos x12","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":20,"precioUnit":2066.88,"precioBulto":41337.6,"costoNeto":1306.75},{"tipo":"producto","ean":"7791905002352","nombre":"Tableta Mata Mosquitos x24","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":20,"precioUnit":3646.33,"precioBulto":72926.6,"costoNeto":2305.32},{"tipo":"producto","ean":"7791905004424","nombre":"Talco Pédico 100g","marca":"AKTIOL","cat":"INSECTICIDAS","uc":12,"precioUnit":1828.37,"precioBulto":21940.44,"costoNeto":1155.95},{"tipo":"producto","ean":"7791905004431","nombre":"Talco Pédico 200g","marca":"AKTIOL","cat":"INSECTICIDAS","uc":12,"precioUnit":3020.44,"precioBulto":36245.28,"costoNeto":1909.62}];
+var CATALOGO_CURADO = [{"tipo":"producto","ean":"7791905024248","nombre":"Lavandina Aditivada En Gel 700ml","marca":"ODEX","cat":"LAVANDINAS","uc":18,"precioUnit":1733.15,"precioBulto":31196.7,"costoNeto":1095.75},{"tipo":"producto","ean":"7791905024057","nombre":"Lavandina Aditivada Lavanda 1L","marca":"ODEX","cat":"LAVANDINAS","uc":15,"precioUnit":1065.28,"precioBulto":15979.2,"costoNeto":673.51},{"tipo":"producto","ean":"7791905024064","nombre":"Lavandina Aditivada Lavanda 2L","marca":"ODEX","cat":"LAVANDINAS","uc":8,"precioUnit":1965.45,"precioBulto":15723.6,"costoNeto":1242.62},{"tipo":"producto","ean":"7791905024071","nombre":"Lavandina Aditivada Lavanda 4L","marca":"ODEX","cat":"LAVANDINAS","uc":3,"precioUnit":3850.79,"precioBulto":11552.37,"costoNeto":2434.59},{"tipo":"producto","ean":"7791905003663","nombre":"Lavandina Aditivada Ropa Blanca 1L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":15,"precioUnit":1295.37,"precioBulto":19430.55,"costoNeto":818.97},{"tipo":"producto","ean":"7791905000723","nombre":"Lavandina Aditivada Ropa Blanca 2L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":8,"precioUnit":2449.23,"precioBulto":19593.84,"costoNeto":1548.48},{"tipo":"producto","ean":"7791905023203","nombre":"Lavandina Común 1L","marca":"ODEX","cat":"LAVANDINAS","uc":15,"precioUnit":856.47,"precioBulto":12847.05,"costoNeto":541.49},{"tipo":"producto","ean":"7791905023210","nombre":"Lavandina Común 2L","marca":"ODEX","cat":"LAVANDINAS","uc":8,"precioUnit":1633.63,"precioBulto":13069.04,"costoNeto":1032.83},{"tipo":"producto","ean":"7791905023227","nombre":"Lavandina Común 4L","marca":"ODEX","cat":"LAVANDINAS","uc":3,"precioUnit":3194.06,"precioBulto":9582.18,"costoNeto":2019.39},{"tipo":"producto","ean":"7791905000020","nombre":"Lavandina Concentrada 1L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":15,"precioUnit":1042.16,"precioBulto":15632.4,"costoNeto":658.89},{"tipo":"producto","ean":"7791905000037","nombre":"Lavandina Concentrada 2L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":8,"precioUnit":2008.82,"precioBulto":16070.56,"costoNeto":1270.04},{"tipo":"producto","ean":"7791905000372","nombre":"Lavandina Concentrada 4L","marca":"QUERUBIN","cat":"LAVANDINAS","uc":3,"precioUnit":3872.75,"precioBulto":11618.25,"costoNeto":2448.48},{"tipo":"producto","ean":"7791905023791","nombre":"Limpiapisos Amoniaco 900ml","marca":"ODEX","cat":"LIMPIAPISOS","uc":12,"precioUnit":1505.61,"precioBulto":18067.32,"costoNeto":951.9},{"tipo":"familia","familiaKey":"limpiapisos-odex-1800","nombre":"Limpiapisos ODEX 1800ml","marca":"ODEX","cat":"LIMPIAPISOS","uc":6,"precioUnit":1583.52,"precioBulto":9501.12,"imagenPrincipal":"7791905023852","variantes":[{"ean":"7791905023852","nombre":"Amanecer Marino"},{"ean":"7791905023883","nombre":"Bebé"},{"ean":"7791905023906","nombre":"Bosque"},{"ean":"7791905023937","nombre":"Floral"},{"ean":"7791905023968","nombre":"Lavanda"},{"ean":"7791905023999","nombre":"Limón"}]},{"tipo":"familia","familiaKey":"limpiapisos-odex-4l","nombre":"Limpiapisos ODEX 4L","marca":"ODEX","cat":"LIMPIAPISOS","uc":3,"precioUnit":4188.83,"precioBulto":12566.49,"imagenPrincipal":"7791905023869","variantes":[{"ean":"7791905023869","nombre":"Amanecer Marino"},{"ean":"7791905024019","nombre":"Bebé"},{"ean":"7791905023944","nombre":"Floral"},{"ean":"7791905023975","nombre":"Lavanda"},{"ean":"7791905024002","nombre":"Limón"}]},{"tipo":"familia","familiaKey":"limpiapisos-odex-900","nombre":"Limpiapisos ODEX 900ml","marca":"ODEX","cat":"LIMPIAPISOS","uc":12,"precioUnit":944.32,"precioBulto":11331.84,"imagenPrincipal":"7791905023845","variantes":[{"ean":"7791905023845","nombre":"Amanecer Marino"},{"ean":"7791905023876","nombre":"Bebé"},{"ean":"7791905023890","nombre":"Bosque"},{"ean":"7791905023920","nombre":"Floral"},{"ean":"7791905023951","nombre":"Lavanda"},{"ean":"7791905023982","nombre":"Limón"}]},{"tipo":"producto","ean":"7791905024811","nombre":"Detergente Ultra Limón 250ml","marca":"ODEX","cat":"DETERGENTES","uc":12,"precioUnit":1220.32,"precioBulto":14643.84,"costoNeto":771.53},{"tipo":"producto","ean":"7791905024828","nombre":"Detergente Ultra Limón 500ml","marca":"ODEX","cat":"DETERGENTES","uc":12,"precioUnit":2153.29,"precioBulto":25839.48,"costoNeto":1361.38},{"tipo":"producto","ean":"7791905024835","nombre":"Detergente Ultra Limón 750ml","marca":"ODEX","cat":"DETERGENTES","uc":12,"precioUnit":3015.35,"precioBulto":36184.2,"costoNeto":1906.4},{"tipo":"producto","ean":"7791905023548","nombre":"Lavavajillas Biodegradable 750ml","marca":"VENCEDOR","cat":"DETERGENTES","uc":12,"precioUnit":1192.71,"precioBulto":14312.52,"costoNeto":754.07},{"tipo":"producto","ean":"7791905003328","nombre":"Líquido Lavar Ropa 1.5L Botella","marca":"QUERUBIN","cat":"LAVARROPAS","uc":6,"precioUnit":3364.73,"precioBulto":20188.38,"costoNeto":2127.29},{"tipo":"producto","ean":"7791905003366","nombre":"Líquido Lavar Ropa 3L D-Pack","marca":"QUERUBIN","cat":"LAVARROPAS","uc":4,"precioUnit":7390.07,"precioBulto":29560.28,"costoNeto":4672.23},{"tipo":"producto","ean":"7791905003878","nombre":"Líquido Lavar Ropa 3L D-Pack","marca":"NETIC","cat":"LAVARROPAS","uc":4,"precioUnit":4408.91,"precioBulto":17635.64,"costoNeto":2787.45},{"tipo":"producto","ean":"7791905003311","nombre":"Líquido Lavar Ropa 800ml Botella","marca":"QUERUBIN","cat":"LAVARROPAS","uc":12,"precioUnit":2457.85,"precioBulto":29494.2,"costoNeto":1553.93},{"tipo":"producto","ean":"7791905003830","nombre":"Líquido Lavar Ropa 800ml Botella","marca":"NETIC","cat":"LAVARROPAS","uc":12,"precioUnit":1513.37,"precioBulto":18160.44,"costoNeto":956.8},{"tipo":"producto","ean":"7791905001393","nombre":"Líquido Lavar Ropa 800ml D-Pack","marca":"QUERUBIN","cat":"LAVARROPAS","uc":12,"precioUnit":2386.93,"precioBulto":28643.16,"costoNeto":1509.09},{"tipo":"producto","ean":"7791905003861","nombre":"Líquido Lavar Ropa 800ml D-Pack","marca":"NETIC","cat":"LAVARROPAS","uc":12,"precioUnit":1500.17,"precioBulto":18002.04,"costoNeto":948.46},{"tipo":"producto","ean":"7791905002789","nombre":"Polvo Lavar Baja Espuma 3kg","marca":"QUERUBIN","cat":"LAVARROPAS","uc":1,"precioUnit":9268.97,"precioBulto":9268.97,"costoNeto":5860.13},{"tipo":"producto","ean":"7791905001614","nombre":"Polvo Lavar Baja Espuma 400g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":30,"precioUnit":1311.91,"precioBulto":39357.3,"costoNeto":829.43},{"tipo":"producto","ean":"7791905001621","nombre":"Polvo Lavar Baja Espuma 800g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":24,"precioUnit":2624.03,"precioBulto":62976.72,"costoNeto":1659},{"tipo":"producto","ean":"7791905003823","nombre":"Polvo Lavar Regular 1.5kg","marca":"QUERUBIN","cat":"LAVARROPAS","uc":12,"precioUnit":4673.28,"precioBulto":56079.36,"costoNeto":2954.59},{"tipo":"producto","ean":"7791905002819","nombre":"Polvo Lavar Regular 3kg","marca":"QUERUBIN","cat":"LAVARROPAS","uc":1,"precioUnit":9268.97,"precioBulto":9268.97,"costoNeto":5860.13},{"tipo":"producto","ean":"7791905001645","nombre":"Polvo Lavar Regular 400g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":30,"precioUnit":1311.91,"precioBulto":39357.3,"costoNeto":829.43},{"tipo":"producto","ean":"7791905001652","nombre":"Polvo Lavar Regular 800g","marca":"QUERUBIN","cat":"LAVARROPAS","uc":24,"precioUnit":2624.03,"precioBulto":62976.72,"costoNeto":1659},{"tipo":"producto","ean":"7791905022749","nombre":"Suavizante Celeste D-Pack 3L","marca":"WOODY","cat":"LAVARROPAS","uc":4,"precioUnit":4867.64,"precioBulto":19470.56,"costoNeto":3077.48},{"tipo":"producto","ean":"7791905000426","nombre":"Suavizante Celeste D-Pack 900ml","marca":"WOODY","cat":"LAVARROPAS","uc":12,"precioUnit":1625.13,"precioBulto":19501.56,"costoNeto":1027.46},{"tipo":"familia","familiaKey":"limpiador-pack-odex-450","nombre":"Limpiador Doy Pack ODEX 450ml","marca":"ODEX","cat":"LIMPIADORES","uc":24,"precioUnit":1318.93,"precioBulto":31654.32,"imagenPrincipal":"7791905004387","varNombre":"producto","variantes":[{"ean":"7791905004387","nombre":"Antigrasa"},{"ean":"7791905004363","nombre":"Vidrios"}]},{"tipo":"familia","familiaKey":"limpiador-gatillo-odex-500","nombre":"Limpiador Gatillo ODEX 500ml","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2561.6,"precioBulto":30739.2,"imagenPrincipal":"7791905004394","varNombre":"producto","variantes":[{"ean":"7791905004394","nombre":"Antigrasa"},{"ean":"7791905004370","nombre":"Vidrios"}]},{"tipo":"producto","ean":"7791905004400","nombre":"Limpia Baño Doy Pack 450ml","marca":"ODEX","cat":"LIMPIADORES","uc":24,"precioUnit":1318.93,"precioBulto":31654.32,"costoNeto":833.87},{"tipo":"producto","ean":"7791905004417","nombre":"Limpia Baño Gatillo 500ml","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2561.6,"precioBulto":30739.2,"costoNeto":1619.52},{"tipo":"producto","ean":"7791905023036","nombre":"Limpiador Cremoso Original 500ml","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2303.84,"precioBulto":27646.08,"costoNeto":1456.56},{"tipo":"producto","ean":"7791905004486","nombre":"Polvo Limpiador Original 400g","marca":"ODEX","cat":"LIMPIADORES","uc":12,"precioUnit":2161.18,"precioBulto":25934.16,"costoNeto":1366.36},{"tipo":"familia","familiaKey":"desinfectante-aerosol-odex","nombre":"Desinfectante Aerosol ODEX 360ml","marca":"ODEX","cat":"DESINFECTANTES","uc":12,"precioUnit":2679.65,"precioBulto":32155.8,"imagenPrincipal":"7791905004516","variantes":[{"ean":"7791905004516","nombre":"Original"},{"ean":"7791905004523","nombre":"Lavanda"},{"ean":"7791905004530","nombre":"Bebé"}]},{"tipo":"producto","ean":"7791905002413","nombre":"Cebo Mata Cucaracha x8","marca":"CUCA TRAP","cat":"INSECTICIDAS","uc":24,"precioUnit":7869.6,"precioBulto":188870.4,"costoNeto":4975.41},{"tipo":"producto","ean":"7791905002338","nombre":"Espiral Mata Mosquitos Perfumados x12","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":48,"precioUnit":1984.77,"precioBulto":95268.96,"costoNeto":1254.83},{"tipo":"producto","ean":"7791905002383","nombre":"Espiral Mata Mosquitos x12","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":48,"precioUnit":1826.77,"precioBulto":87684.96,"costoNeto":1154.94},{"tipo":"producto","ean":"7791905002390","nombre":"Insecticida Mata Cucarachas 380ml","marca":"CUCA TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":3646.16,"precioBulto":43753.92,"costoNeto":2305.22},{"tipo":"producto","ean":"7791905023265","nombre":"Insecticida Mata Cucarachas Ultra 380ml","marca":"CUCA TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":4059.56,"precioBulto":48714.72,"costoNeto":2566.58},{"tipo":"producto","ean":"7791905002376","nombre":"Insecticida Mata Moscas/Mosquitos 370ml","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":3311.43,"precioBulto":39737.16,"costoNeto":2093.59},{"tipo":"producto","ean":"7791905023258","nombre":"Insecticida Mata Moscas/Mosquitos Ultra 370ml","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":12,"precioUnit":3643.32,"precioBulto":43719.84,"costoNeto":2303.42},{"tipo":"producto","ean":"7791905023784","nombre":"Repelente Mosquitos 143ml","marca":"AKTIOL","cat":"INSECTICIDAS","uc":12,"precioUnit":2799.88,"precioBulto":33598.56,"costoNeto":1770.17},{"tipo":"producto","ean":"7791905024897","nombre":"Repelente Mosquitos 165ml","marca":"AKTIOL","cat":"INSECTICIDAS","uc":12,"precioUnit":3443.85,"precioBulto":41326.2,"costoNeto":2177.31},{"tipo":"producto","ean":"7791905002345","nombre":"Tableta Mata Mosquitos x12","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":20,"precioUnit":2066.88,"precioBulto":41337.6,"costoNeto":1306.75},{"tipo":"producto","ean":"7791905002352","nombre":"Tableta Mata Mosquitos x24","marca":"MOSQUI TRAP","cat":"INSECTICIDAS","uc":20,"precioUnit":3646.33,"precioBulto":72926.6,"costoNeto":2305.32},{"tipo":"producto","ean":"7791905004424","nombre":"Talco Pédico 100g","marca":"AKTIOL","cat":"PERFUMERIA","uc":12,"precioUnit":1828.37,"precioBulto":21940.44,"costoNeto":1155.95},{"tipo":"producto","ean":"7791905004431","nombre":"Talco Pédico 200g","marca":"AKTIOL","cat":"PERFUMERIA","uc":12,"precioUnit":3020.44,"precioBulto":36245.28,"costoNeto":1909.62}];
+var CATALOGO = [];
+/* Rearma el catálogo con lo habilitado. Devuelve true si cambió qué se ve. */
+function qrArmarCatalogo(){
+  var firma = function(){ return CATALOGO.map(function(p){ return p.tipo === 'familia' ? p.familiaKey + ':' + p.variantes.map(function(v){ return v.ean; }).join('.') : p.ean; }).join(','); };
+  var antes = firma();
+  var fichas = (typeof Catalogo !== 'undefined' && Catalogo.todos) ? Catalogo.todos() : [];
+  var nuevo = window.QRVendedor ? QRVendedor.armar(CATALOGO_CURADO, fichas) : CATALOGO_CURADO.slice();
+  CATALOGO.length = 0; Array.prototype.push.apply(CATALOGO, nuevo);
+  return antes !== firma();
+}
+qrArmarCatalogo();
 
 const CATS = [
   {k:'TODAS',l:'&#127968; Todas'},
-  {k:'LAVANDINAS',l:'&#129703; Lavandinas'},
+  {k:'LAVANDINAS',l:'&#129524; Lavandinas'},
   {k:'LIMPIAPISOS',l:'&#129529; Limpiapisos'},
-  {k:'DETERGENTES',l:'&#127829; Detergentes'},
+  {k:'DETERGENTES',l:'&#129532; Detergentes'},
   {k:'LAVARROPAS',l:'&#128085; Lavarropas'},
-  {k:'LIMPIADORES',l:'&#129405; Limpiadores'},
+  {k:'LIMPIADORES',l:'&#129533; Limpiadores'},
   {k:'DESINFECTANTES',l:'&#128737; Desinfect.'},
-  {k:'INSECTICIDAS',l:'&#129432; Insecticidas'},
+  {k:'INSECTICIDAS',l:'&#129439; Insecticidas'},
+  {k:'AMBIENTE',l:'&#127800; Ambiente'},
+  {k:'PERFUMERIA',l:'&#128132; Perfumería'},
+  {k:'OTROS',l:'&#128230; Otros'},
 ];
 
 // ── ESTADO ──────────────────────────────────────────────────
@@ -7823,7 +8007,8 @@ var _montado = false;
    categorías y familias siguen siendo las curadas de esta app. */
 function sincronizarPrecios(){
   if (typeof Catalogo === 'undefined') return 0;
-  var n = 0;
+  /* Primero qué se ve (el admin pudo habilitar o deshabilitar algo). */
+  var n = qrArmarCatalogo() ? 1 : 0;
   CATALOGO.forEach(function(p){
     var ean = p.tipo === 'familia' ? p.imagenPrincipal : p.ean;
     var f = ean && Catalogo.buscar(ean);
@@ -8731,7 +8916,8 @@ function qcPintarTabs() {
   if (E.cat === "OFERTAS" && !nOf) E.cat = "TODAS";
   var html = (nOf ? '<button type="button" class="ctab qc-tab-of ' + (E.cat === "OFERTAS" ? "active" : "") +
     '" onclick="QR.setCat(\'OFERTAS\')">🔥 Ofertas <span class="qc-tab-n">' + nOf + '</span></button>' : "") +
-    CATS.map(function (c) {
+    /* Solo las categorías que tienen algo habilitado para vender. */
+    CATS.filter(function (c) { return c.k === "TODAS" || CATALOGO.some(function (p) { return p.cat === c.k; }); }).map(function (c) {
       return '<button type="button" class="ctab ' + (c.k === E.cat ? "active" : "") + '" onclick="QR.setCat(\'' + c.k + '\')">' + c.l + '</button>';
     }).join("");
   if (cont.getAttribute("data-html") !== html) { cont.innerHTML = html; cont.setAttribute("data-html", html); }
@@ -8741,6 +8927,8 @@ renderTabs = qcPintarTabs;
 renderGrid = function () {
   var q = qcNorm(E.busq);
   var items = CATALOGO;
+  /* Si el admin deshabilitó todo lo de la categoría elegida, se vuelve a Todas. */
+  if (E.cat !== "TODAS" && E.cat !== "OFERTAS" && !CATALOGO.some(function (p) { return p.cat === E.cat; })) E.cat = "TODAS";
   if (E.cat === "OFERTAS") items = items.filter(function (p) { return !!getOferta(qcKey(p)); });
   else if (E.cat !== "TODAS") items = items.filter(function (p) { return p.cat === E.cat; });
   if (q) {

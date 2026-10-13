@@ -1864,7 +1864,23 @@ renderCatKPIs();
     return { estado: "actualizado", total: Object.keys(datos.productos).length };
   }
 
+  /* Habilitar / deshabilitar para los vendedores. Queda en la ficha y viaja
+     con la publicación; una lista nueva NO lo pisa (aplicar conserva lo
+     que la lista no trae). Ver catalogo-vendedor.js. */
+  function setVendible(eans, valor) {
+    const cat = leer();
+    let n = 0;
+    for (const e of [].concat(eans)) {
+      const f = cat[String(e)];
+      if (!f) continue;
+      f.vendible = !!valor; f.vendibleEn = new Date().toISOString(); n++;
+    }
+    if (n) guardar(cat);
+    return n;
+  }
+
   global.Catalogo = {
+    setVendible,
     COL, precioVenta, desdeLista, comparar, aplicar,
     buscar, todos, cuantos, historial, meta, sembrar, recalcularMargen,
     margenesRubro, setMargenRubro, margenDe, rubroDe, rubros,
@@ -1893,6 +1909,160 @@ renderCatKPIs();
   }).catch(e => { console.warn("[catálogo] error al traer:", e); return { estado: "error" }; });
   if (typeof module !== "undefined" && module.exports) module.exports = global.Catalogo;
 
+})(typeof window !== "undefined" ? window : globalThis);
+
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   QUÉ VE EL VENDEDOR DE QUERUCLOR
+
+   La app del vendedor trae 56 artículos «curados» a mano (nombre corto,
+   categoría, familias de aromas). La lista del proveedor tiene 202. Desde
+   oct-2026 la app muestra TODOS los de la lista, pero solo los que el
+   admin dejó HABILITADOS: así, el día que se compra algo nuevo, se activa
+   en el admin y al vendedor le aparece solo.
+
+   · Lo curado se respeta tal cual (fotos, familias, nombres).
+   · Lo que no está curado se arma solo desde la lista: un artículo simple
+     por código, nombre corto y categoría deducidos del nombre.
+   · Habilitado = campo `vendible` del catálogo compartido (lo cambia el
+     admin y viaja con la publicación). Si un artículo nunca se tocó, vale
+     el arranque: habilitados los del PRIMER PEDIDO (v5, 13/10/2026).
+
+   Sin dependencias: se usa en la app del vendedor, en el admin y en Node
+   (catalogo-vendedor-test.js).
+   ═══════════════════════════════════════════════════════════════════ */
+(function (raiz) {
+  "use strict";
+
+  /* Primer pedido a Queruclor (Pedido_Queruclor_Final_v5.xlsx). El
+     detergente Vencedor 500 falta: no está en la lista de junio, aparece
+     cuando la lista del proveedor lo traiga. */
+  const PRIMER_PEDIDO = new Set([
+    "7791905023203", "7791905023210", "7791905000020", "7791905000037", "7791905024248", "7791905003663",
+    "7791905024811", "7791905024828",
+    "7791905023951", "7791905023890", "7791905023876", "7791905023845", "7791905023968", "7791905023852",
+    "7791905001393", "7791905003328", "7791905003366", "7791905003861", "7791905003847",
+    "7791905000921", "7791905003373", "7791905000426",
+    "7791905004486", "7791905023036", "7791905004387", "7791905004400", "7791905004363",
+    "7791905002383", "7791905002345", "7791905002376", "7791905002390", "7791905023784",
+    "7791905004516", "7791905004554", "7791905004424",
+  ]);
+
+  function vendible(ficha, ean) {
+    if (ficha && typeof ficha.vendible === "boolean") return ficha.vendible;
+    return PRIMER_PEDIDO.has(String(ean));
+  }
+
+  /* Categorías de la app del vendedor (las pestañas). Las tres últimas son
+     nuevas: solo aparecen cuando hay algo habilitado ahí. */
+  const CATS = [
+    ["LAVANDINAS", /LAVANDINA/],
+    ["LIMPIAPISOS", /LIQUIDO LIMPIADOR|DESODORANTE DE PISO/],
+    ["DETERGENTES", /DETERGENTE|LAVAVAJILLA/],
+    ["LAVARROPAS", /LAVAR ROPA|POLVO PARA LAVAR|SUAVIZANTE|PERFUMANTE PARA ROPA|QUITAMANCHAS|JABON (EN PAN|LIQUIDO) PARA (LA )?ROPA/],
+    ["INSECTICIDAS", /INSECTICIDA|ESPIRAL|TABLETA|REPELENTE|CEBO|APARATO|MOSQUI|CUCA/],
+    ["DESINFECTANTES", /DESINFECTANTE|ALCOHOL/],
+    ["LIMPIADORES", /LIMPIA |LIMPIADOR|CREMOSO|POLVO LIMPIADOR/],
+    ["AMBIENTE", /AROMATIZADOR|DESODORANTE DE AMBIENTES|AROMATIZANTE/],
+    ["PERFUMERIA", /ANTITRANSPIRANTE|FRAGANCIA|DESODORANTE AEROSOL|TALCO|JABON|SHAMPOO|ACONDICIONADOR|CREMA|TOALLITAS/],
+  ];
+  function categoria(nombreCompleto) {
+    const n = String(nombreCompleto || "").toUpperCase();
+    for (const [cat, re] of CATS) if (re.test(n)) return cat;
+    return "OTROS";
+  }
+
+  /* «LIQUIDO PARA LAVAR ROPA X 1.5 L BOT NETIC CAJA X 6» →
+     «Líquido para lavar ropa 1,5 L bot Netic». */
+  const TILDES = { LIQUIDO: "Líquido", JABON: "Jabón", LIMON: "Limón", BEBE: "Bebé", BAÑO: "Baño", ALGODON: "Algodón",
+    COTILLON: "Cotillón", VALVULA: "Válvula", PEDICO: "Pédico", BOTANICO: "Botánico", QUERUBIN: "Querubín", CITRICAS: "Cítricas" };
+  const UNIDAD = { ML: "ml", L: "L", G: "g", GRS: "g", KG: "kg", U: "u" };
+  const CORTAS = new Set(["DE", "DEL", "LA", "LAS", "EL", "LOS", "PARA", "EN", "CON", "Y", "A", "POR"]);
+  function nombreCorto(nombreCompleto) {
+    let s = String(nombreCompleto || "").replace(/\s+CAJA( X)?\s*\d+(\s*X\s*\d+)?\s*$/i, "").replace(/\s+/g, " ").trim();
+    s = s.replace(/ X (\d+(?:[.,]\d+)?) ?(ML|L|G|GRS|KG|U)\b/gi, (m, n, u) => " " + n.replace(".", ",") + " " + UNIDAD[u.toUpperCase()]);
+    return s.split(" ").map((w, i) => {
+      const W = w.toUpperCase();
+      if (TILDES[W]) return TILDES[W];
+      if (/\d/.test(w)) return w;
+      if (i && CORTAS.has(W)) return W.toLowerCase();
+      const p = W.charAt(0) + W.slice(1).toLowerCase();
+      return p.replace(/cion$/, "ción");                     // Nutrición, Reparación, Acción, Duración
+    }).join(" ").replace(/^Agua lavandina/i, "Lavandina");
+  }
+
+  /* Los EAN que ya cubre lo curado (un producto, o una variante de familia). */
+  function eanesCurados(curado) {
+    const s = new Set();
+    for (const p of curado) {
+      if (p.tipo === "familia") (p.variantes || []).forEach(v => s.add(String(v.ean)));
+      else s.add(String(p.ean));
+    }
+    return s;
+  }
+
+  /* Arma el catálogo del vendedor.
+       curado     → el CATALOGO escrito a mano de la app
+       fichas     → Catalogo.todos() (la lista del proveedor, con `vendible`)
+       opc.todos  → true en el admin: devuelve todo, con `_habilitado`
+     Devuelve objetos NUEVOS para lo automático y los MISMOS objetos
+     curados (la app les pisa precios en el lugar), filtrando variantes. */
+  function armar(curado, fichas, opc) {
+    opc = opc || {};
+    const porEan = {};
+    for (const f of fichas || []) if (f && f.ean) porEan[String(f.ean)] = f;
+    const hab = ean => vendible(porEan[String(ean)], ean);
+    const out = [];
+
+    for (const p of curado) {
+      if (p.tipo === "familia") {
+        if (!p._todas) p._todas = (p.variantes || []).slice();       // las variantes originales, una sola vez
+        const vis = p._todas.filter(v => hab(v.ean));
+        if (opc.todos) { p.variantes = p._todas.slice(); p._habilitado = vis.length > 0; out.push(p); continue; }
+        if (!vis.length) continue;
+        p.variantes = vis;
+        out.push(p);
+      } else {
+        const h = hab(p.ean);
+        if (opc.todos) { p._habilitado = h; out.push(p); continue; }
+        if (h) out.push(p);
+      }
+    }
+
+    const cubiertos = eanesCurados(curado);
+    const auto = [];
+    for (const f of fichas || []) {
+      const ean = String(f.ean || "");
+      if (!ean || cubiertos.has(ean) || f.activo === false) continue;   // fuera de la lista del proveedor: no se ofrece
+      const h = hab(ean);
+      if (!h && !opc.todos) continue;
+      const uc = Number(f.uc) || 1;
+      auto.push({
+        tipo: "producto", ean, auto: true,
+        nombre: nombreCorto(f.nombreCompleto), marca: String(f.marca || "").toUpperCase(),
+        cat: categoria(f.nombreCompleto), uc,
+        precioUnit: f.precioUnit || 0, precioBulto: f.precioBulto || Math.round((f.precioUnit || 0) * uc * 100) / 100,
+        costoNeto: f.costoNeto || 0,
+        _habilitado: opc.todos ? h : undefined,
+      });
+    }
+    auto.sort((a, b) => a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
+    return out.concat(auto);
+  }
+
+  /* Para mostrar en el admin: «35 de 202 habilitados». */
+  function resumen(curado, fichas) {
+    const todos = new Set((fichas || []).filter(f => f.activo !== false).map(f => String(f.ean)));
+    eanesCurados(curado).forEach(e => todos.add(e));
+    const porEan = {}; (fichas || []).forEach(f => { porEan[String(f.ean)] = f; });
+    let hab = 0; todos.forEach(e => { if (vendible(porEan[e], e)) hab++; });
+    return { total: todos.size, habilitados: hab };
+  }
+
+  const api = { armar, vendible, categoria, nombreCorto, resumen, PRIMER_PEDIDO };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else raiz.QRVendedor = api;
 })(typeof window !== "undefined" ? window : globalThis);
 
 </script>
@@ -3927,7 +4097,20 @@ renderCatKPIs();
       util: d.limpio, uc: f.uc || p.uc || 1, vto: f.fechaVto || "",
     };
   }
-  const filas = () => CATALOGO.map(fila).filter(Boolean);
+  /* ── Habilitado para los vendedores (catalogo-vendedor.js) ──────────
+     El admin lista los 202 de la lista del proveedor: los 56 curados de
+     la app + el resto armado solo. El monitor y los avisos cuentan solo
+     los que ven los vendedores. */
+  const habEan = ean => window.QRVendedor ? QRVendedor.vendible(Catalogo.buscar(ean), ean) : true;
+  const habDe = p => eansDe(p).some(habEan);
+  function extenderCatalogo() {
+    if (!window.QRVendedor || typeof CATALOGO === "undefined") return;
+    const curado = CATALOGO.filter(p => !p.auto);
+    const todos = QRVendedor.armar(curado, Catalogo.todos(), { todos: true });
+    CATALOGO.length = 0;
+    todos.forEach(p => CATALOGO.push(p));
+  }
+  const filas = () => CATALOGO.filter(habDe).map(fila).filter(Boolean);
 
   /* ── Vencimientos ──────────────────────────────────────────────── */
   const hoy = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
@@ -4020,6 +4203,26 @@ renderCatKPIs();
     if (!(m + impuestos() < 0.9)) { toastA("Esa utilidad es demasiado alta"); return pintarTodo(); }
     if (!confirmarRaro(p, m)) return pintarTodo();
     tocar(p, f => { f.margenOverride = Math.round(m * 10000) / 10000; });
+    pintarTodo(i);
+  };
+
+  /* Habilitar / deshabilitar: no cambia precios, solo qué ve el vendedor. */
+  function marcarVendible(eans, v) {
+    const cambio = f => { f.vendible = v; f.vendibleEn = new Date().toISOString(); };
+    pendientes.push({ eans, cambio, sinPrecio: true });
+    const cat = Catalogo._leer();
+    for (const ean of eans) if (cat[ean]) cambio(cat[ean]);
+    Catalogo._guardar(cat);
+    publicarPronto();
+  }
+  window.aaHabilitar = function (i, v) {
+    const p = CATALOGO[i];
+    marcarVendible(eansDe(p), !!v);
+    toastA((v ? "Habilitado: " : "Ya no lo ven: ") + p.nombre + (v ? ". Lo ven los vendedores en menos de 1 minuto." : ""));
+    pintarTodo(i);
+  };
+  window.aaHabAroma = function (i, ean) {
+    marcarVendible([String(ean)], !habEan(ean));
     pintarTodo(i);
   };
 
@@ -4252,12 +4455,18 @@ renderCatKPIs();
         </div>`;
       else promo = `<div class="aa-promo mal">No da para descuento sin perder plata: liquidar al costo o devolver al proveedor.</div>`;
     }
+    const h = habDe(r.p);
+    const hab = r.p.tipo === "familia"
+      ? `<div class="aa-aromas"><span>Lo ven los vendedores:</span>${r.p.variantes.map(v =>
+          `<button type="button" class="aa-ar ${habEan(v.ean) ? "on" : ""}" onclick="aaHabAroma(${i}, '${esc(v.ean)}')">${habEan(v.ean) ? "✓ " : ""}${esc(v.nombre)}</button>`).join("")}</div>`
+      : `<label class="aa-hab ${h ? "on" : ""}"><input type="checkbox" ${h ? "checked" : ""} onchange="aaHabilitar(${i}, this.checked)"> ${h ? "Lo ven los vendedores" : "No lo ven los vendedores"}</label>`;
     return `
-      <div class="aa-fila ${r.propio ? "propio" : ""}" id="${pref || "aa-f-"}${i}">
+      <div class="aa-fila ${r.propio ? "propio" : ""} ${h ? "" : "oculto"}" id="${pref || "aa-f-"}${i}">
         <div class="aa-nom">
           <b>${esc(r.p.nombre)}</b>
           <i>${esc(r.p.marca)} · costo ${money(r.costo)} · <strong>${money(r.precio)}</strong>/u final</i>
           ${chipVto(r)}
+          ${hab}
         </div>
         <label class="aa-in" title="Ganancia limpia sobre lo que cobrás (sin IVA)"><span>Margen s/venta %</span>
           <input type="text" inputmode="decimal" value="${(r.m * 100).toFixed(1).replace(".", ",")}"
@@ -4284,7 +4493,8 @@ renderCatKPIs();
     const items = CATALOGO.map((p, i) => ({ r: fila(p), i }))
       .filter(x => x.r)
       .filter(x => !q || (x.r.p.nombre + " " + x.r.p.marca).toLowerCase().includes(q))
-      .filter(x => !soloVencen || (diasA(x.r.vto) !== null && diasA(x.r.vto) <= 30));
+      .filter(x => !soloVencen || (diasA(x.r.vto) !== null && diasA(x.r.vto) <= 30))
+      .filter(x => verHab === "todos" || (verHab === "si") === habDe(x.r.p));
     if (soloVencen) items.sort((a, b) => diasA(a.r.vto) - diasA(b.r.vto));
 
     /* De entrada se ven solo los que piden algo (vencen, margen propio o
@@ -4292,7 +4502,7 @@ renderCatKPIs();
        buscador y «Ver todos» siempre llegan a cualquiera. */
     const g = general();
     const llama = x => { const d = diasA(x.r.vto); return x.r.propio || x.r.m < g - 0.05 || (d !== null && d <= 30); };
-    const resumido = !q && !soloVencen && !verTodos;
+    const resumido = !q && !soloVencen && !verTodos && verHab === "si";
     const vis = resumido ? items.filter(llama) : items;
     const resto = items.length - vis.length;
     caja.innerHTML = (vis.length
@@ -4305,6 +4515,16 @@ renderCatKPIs();
   }
   let verTodos = false;
   window.aaVerTodos = v => { verTodos = v; pintarLista(); };
+  /* «si» = los que ven los vendedores (de entrada) · «no» = los que no · «todos» */
+  let verHab = "si";
+  window.aaVerHab = v => { verHab = v; pintarLista(); pintarCuenta(); };
+  function pintarCuenta() {
+    const el = $("aaCuentaHab"); if (!el || !window.QRVendedor) return;
+    const curado = CATALOGO.filter(p => !p.auto);
+    const r = QRVendedor.resumen(curado, Catalogo.todos());
+    el.innerHTML = `<b>${r.habilitados}</b> de ${r.total} artículos de la lista los ven los vendedores`;
+    document.querySelectorAll(".aa-verhab button").forEach(b => b.classList.toggle("on", b.dataset.v === verHab));
+  }
 
   function pintarAviso(fs) {
     const vence = fs.filter(r => { const d = diasA(r.vto); return d !== null && d <= 30; });
@@ -4325,10 +4545,12 @@ renderCatKPIs();
 
   function pintarTodo() {
     if (!listo()) return;
+    extenderCatalogo();
     const fs = filas();
     const mon = $("aaMonitor");
     if (mon) mon.innerHTML = monitor(fs);
     pintarLista();
+    pintarCuenta();
     pintarAviso(fs);
     if (window.qrRubrosPintar) try { qrRubrosPintar(); } catch (e) {}
     if (window.avRevisar) try { avRevisar(); } catch (e) {}
@@ -4351,7 +4573,7 @@ renderCatKPIs();
     mon.innerHTML = `
       <div class="card-hdr aa-hdr">
         <div><h3>📈 Monitor de márgenes</h3>
-          <p>Promedio de los ${CATALOGO.length} artículos de la app del vendedor. Margen = lo que queda limpio (sin IVA, después de IIBB y cheque) sobre la venta.</p></div>
+          <p>Promedio de los artículos que ven los vendedores. Margen = lo que queda limpio (sin IVA, después de IIBB y cheque) sobre la venta.</p></div>
         <div class="aa-estado"></div>
       </div>
       <div class="card-body"><div id="aaMonitor"></div></div>`;
@@ -4364,11 +4586,19 @@ renderCatKPIs();
     art.className = "card"; art.id = "aaArticulos";
     art.innerHTML = `
       <div class="card-hdr aa-hdr">
-        <div><h3>🏷️ Margen, utilidad y vencimiento por artículo</h3>
-          <p>Escribí el margen <b>o</b> la utilidad en pesos: el otro se calcula solo. Se publica solo al terminar de escribir.</p></div>
+        <div><h3>🏷️ Artículos: qué ven los vendedores, margen y vencimiento</h3>
+          <p>Están todos los de la lista del proveedor. Tildá <b>«Lo ven los vendedores»</b> cuando lo compres y les aparece solo. Margen <b>o</b> utilidad: el otro se calcula solo. Todo se publica al terminar.</p></div>
         <div class="aa-estado"></div>
       </div>
       <div class="card-body">
+        <div class="aa-habbar">
+          <span id="aaCuentaHab"></span>
+          <div class="aa-verhab" role="group" aria-label="Qué artículos mostrar">
+            <button type="button" data-v="si" class="on" onclick="aaVerHab('si')">Los que ven</button>
+            <button type="button" data-v="no" onclick="aaVerHab('no')">Los que no ven</button>
+            <button type="button" data-v="todos" onclick="aaVerHab('todos')">Todos</button>
+          </div>
+        </div>
         <div class="aa-filtros">
           <input type="search" placeholder="Buscar artículo…" oninput="aaBuscar(this.value)">
           <label><input type="checkbox" id="aaChkVence" onchange="aaSoloVencen(this.checked)"> Solo los que vencen en ≤30 días</label>
@@ -4488,6 +4718,23 @@ renderCatKPIs();
       font:inherit; font-size:12px; font-weight:800; cursor:pointer; min-height:36px }
     .aa-promo.ok{ background:#f0fdf4; border-color:#86efac; color:#166534; font-weight:700 }
     .aa-promo.mal{ background:#fef2f2; border-color:#fca5a5; color:#991b1b }
+    .aa-habbar{ display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;
+      padding:10px 12px; border-radius:10px; background:var(--brand-soft); border:1px solid var(--brand-line) }
+    #aaCuentaHab{ font-size:13px; color:var(--ink2) } #aaCuentaHab b{ font-size:16px; color:var(--brand) }
+    .aa-verhab{ display:flex; gap:4px; background:#fff; border:1px solid var(--line); border-radius:9px; padding:3px }
+    .aa-verhab button{ border:0; background:none; font:inherit; font-size:12.5px; font-weight:700; color:var(--ink3);
+      padding:7px 11px; border-radius:7px; cursor:pointer; min-height:34px }
+    .aa-verhab button.on{ background:var(--brand); color:#fff }
+    .aa-hab{ display:inline-flex; align-items:center; gap:7px; margin-top:5px; font-size:12px; font-weight:700;
+      color:var(--ink3); cursor:pointer; padding:5px 9px; border-radius:99px; background:#f1f5f9 }
+    .aa-hab.on{ color:var(--good); background:var(--good-soft) }
+    .aa-hab input{ width:16px; height:16px; accent-color:var(--good); cursor:pointer }
+    .aa-aromas{ display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:5px }
+    .aa-aromas span{ font-size:11px; font-weight:700; color:var(--ink3) }
+    .aa-ar{ border:1px solid var(--line); background:#fff; color:var(--ink3); font:inherit; font-size:11.5px; font-weight:700;
+      padding:5px 9px; border-radius:99px; cursor:pointer; min-height:30px }
+    .aa-ar.on{ background:var(--good-soft); border-color:#86efac; color:var(--good) }
+    .aa-fila.oculto{ background:#fafbfc } .aa-fila.oculto .aa-nom b{ color:var(--ink3) }
     .aa-vacio{ padding:24px; text-align:center; color:var(--ink3); font-size:13.5px }
     .aa-nota{ font-size:12.5px; color:var(--ink3); margin:0 0 8px }
     .aa-todos{ width:100%; margin-top:6px; padding:11px; border:1px dashed var(--line); border-radius:8px; background:#fff; color:var(--brand); font:inherit; font-size:13px; font-weight:600; cursor:pointer }
