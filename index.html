@@ -1587,6 +1587,96 @@ main { max-width: 540px; }
   font-variant-numeric:tabular-nums;
 }
 </style>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   COLA DE ENVÍO DE PEDIDOS — la parte que no puede perder nada
+
+   Cada pedido confirmado entra a una cola en el teléfono y de ahí sale
+   a DOS destinos:
+     · Google Forms → planilla y hoja del pedido en Drive.
+     · Worker → Supabase, que es lo que leen depósito y facturación.
+
+   Lo que arregla este archivo (auditoría 13/10/2026):
+     1. La vuelta de envío terminaba REEMPLAZANDO la cola por «los que
+        fallaron». Un pedido confirmado mientras se esperaba la red se
+        borraba sin aviso. Ahora se relee la cola y se saca SOLO el pedido
+        que se terminó de mandar.
+     2. El Worker se mandaba «tirar y olvidar»: si fallaba, el pedido
+        contaba como enviado aunque nunca llegara a Supabase (depósito no
+        lo veía). Ahora un pedido sale de la cola recién cuando los DOS
+        destinos lo recibieron. Cada destino se marca por separado, así
+        un reintento no vuelve a mandar al que ya lo tiene: Forms no
+        detecta duplicados (cada envío crea otra hoja de pedido); el
+        Worker sí (firma única), por eso es el único que se reintenta a
+        ciegas.
+     3. Con un pedido trabado, la app reintentaba cada segundo y en cada
+        vuelta recargaba el historial. Ahora espera cada vez más
+        (15 s, 30 s, 1 min… hasta 5 min).
+
+   Sin dependencias: recibe todo lo que usa, así se prueba en Node
+   (cola-envio-test.js) y se pega igual en la app de producción.
+   ═══════════════════════════════════════════════════════════════════ */
+(function (raiz) {
+  "use strict";
+
+  /* dep: { leer(), guardar(cola), enviarForm(p) → bool, enviarWorker(p) → bool, marcarEnviado(sig) } */
+  async function sincronizar(dep) {
+    let enviados = 0;
+    const pendientes = dep.leer().map(p => p.id);
+    for (const id of pendientes) {
+      const actual = dep.leer().find(x => x.id === id);
+      if (!actual) continue;                       // lo sacó otra cosa mientras tanto
+      const p = Object.assign({}, actual);
+      if (!p.okForm) p.okForm = !!(await dep.enviarForm(p));
+      if (!p.okWorker) p.okWorker = !!(await dep.enviarWorker(p));
+      const listo = p.okForm && p.okWorker;
+      if (listo) { dep.marcarEnviado(p.sig); enviados++; }
+      /* Se relee la cola DESPUÉS de esperar la red: en ese rato pudo
+         entrar un pedido nuevo, y no se toca. */
+      const cola = dep.leer();
+      const i = cola.findIndex(x => x.id === id);
+      if (i >= 0) {
+        if (listo) cola.splice(i, 1); else cola[i] = Object.assign(cola[i], { okForm: p.okForm, okWorker: p.okWorker });
+        dep.guardar(cola);
+      }
+    }
+    const vistos = new Set(pendientes);
+    const cola = dep.leer();
+    /* nuevos = entraron mientras se mandaba y todavía no se intentaron. */
+    return { enviados, quedan: cola.length, nuevos: cola.filter(x => !vistos.has(x.id)).length };
+  }
+
+  /* Espera antes del próximo reintento según cuántos fallaron seguidos. */
+  function espera(intentos) {
+    return Math.min(15000 * Math.pow(2, Math.max(0, intentos - 1)), 300000);
+  }
+
+  /* El Worker contesta {status:"ok"} (también si el pedido ya estaba).
+     Cualquier otra cosa —error de Supabase, sin señal, tardó más de
+     20 s— es «no llegó» y se reintenta. */
+  async function enviarWorker(url, p, fetchFn) {
+    const f = fetchFn || fetch;
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const t = ctrl ? setTimeout(() => ctrl.abort(), 20000) : null;
+    try {
+      const datos = Object.assign({}, p); delete datos.okForm; delete datos.okWorker;
+      const r = await f(url, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(datos), signal: ctrl ? ctrl.signal : undefined });
+      const j = await r.json().catch(() => null);
+      return !!(r.ok && j && j.status === "ok");
+    } catch (e) {
+      return false;
+    } finally {
+      if (t) clearTimeout(t);
+    }
+  }
+
+  const api = { sincronizar, espera, enviarWorker };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else raiz.ColaEnvio = api;
+})(typeof window !== "undefined" ? window : globalThis);
+
+</script>
 </head>
 <body>
 
@@ -2965,17 +3055,8 @@ async function sendToGoogleForm(p) {
     const f = (p.fechaEntrega || "").trim(); if(f){ fd.append(GF.fecha, f); const [y, m, d] = f.split("-"); if(GF.fecha_day) { fd.append(GF.fecha_day, d); fd.append(GF.fecha_month, m); fd.append(GF.fecha_year, y); } }
     fd.append(GF.sig, p.sig || "");
 
-    // =========================================================
-    // 🚀 AGREGADO QUIRÚRGICO: Envío paralelo al Worker (Supabase)
-    // =========================================================
-    try {
-      fetch("https://frosty-term-20ea.santamariapablodaniel.workers.dev/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(p)
-      }).catch(e => console.log("Worker paralelo:", e));
-    } catch(e) {}
-    // =========================================================
+    // El envío al Worker (Supabase: depósito y facturación) lo hace
+    // syncQueue() aparte y lo confirma — ver ColaEnvio.
 
     try { await fetch(GF_ACTION, { method: "POST", mode: "no-cors", body: fd }); return { status: "ok" }; }
     catch(e) { return { status: "error" }; }
@@ -3683,27 +3764,37 @@ $("btnConfirmYes").onclick = () => {
     if (chip) aplicarSugerencia(chip.getAttribute("data-prod"));
   });
 
-  let isSyncing = false;
+  let isSyncing = false, _fallosSeguidos = 0, _timerReintento = 0;
+  const WORKER_PEDIDOS = "https://frosty-term-20ea.santamariapablodaniel.workers.dev/";
   async function syncQueue() {
     if(isSyncing || !navigator.onLine) return;
-    const q = getQueue(); if(!q.length) return;
+    if(!getQueue().length) return;
     isSyncing = true;
+    clearTimeout(_timerReintento);
     $("connDot").className = "dot syncing";
     $("btnEnviar").disabled = true;
     $("btnEnviar").querySelector("span").textContent = "ENVIANDO...";
-    let failed = [], successCount = 0;
-    for(const p of q){
-      const res = await sendToGoogleForm(p);
-      if(res.status === 'ok') { markSig(p.sig); successCount++; } else failed.push(p);
-    }
-    setQueue(failed);
-    const s = getStats(); s.enviados += successCount; setStats(s);
+    let r = { enviados: 0, quedan: getQueue().length, nuevos: 0 };
+    try {
+      r = await ColaEnvio.sincronizar({
+        leer: getQueue, guardar: setQueue, marcarEnviado: markSig,
+        enviarForm: async p => (await sendToGoogleForm(p)).status === "ok",
+        enviarWorker: p => ColaEnvio.enviarWorker(WORKER_PEDIDOS, p)
+      });
+    } catch (e) { console.error("[cola]", e); }
+    const s = getStats(); s.enviados += r.enviados; setStats(s);
     isSyncing = false;
     $("btnEnviar").disabled = false;
     $("btnEnviar").querySelector("span").textContent = "ENVIAR PEDIDO";
-    updateConn();
+    $("connDot").className = navigator.onLine ? "dot online" : "dot offline";
+    // Entró un pedido mientras se mandaba: sale ya. Quedó alguno trabado: se reintenta con pausa.
+    if (r.nuevos) _timerReintento = setTimeout(syncQueue, 300);
+    else if (r.quedan) { _fallosSeguidos++; _timerReintento = setTimeout(syncQueue, ColaEnvio.espera(_fallosSeguidos)); }
+    else _fallosSeguidos = 0;
     if($("pendientes").style.display !== "none") renderPendientes();
   }
+  // Al volver a la app (estaba en segundo plano) se intenta mandar lo pendiente.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncQueue(); });
 
   function updateConn(){
     const on = navigator.onLine; $("connDot").className = on ? "dot online" : "dot offline";
@@ -9346,11 +9437,26 @@ window.fetch = function (url, opts) {
       try {
         const p = JSON.parse(opts.body);
         if (p && p.productos !== undefined) {          // el pedido (no las llamadas de IA)
-          p._capturadoEn = new Date().toISOString();
+          /* Para probar la cola a mano desde la consola:
+               localStorage.proto_worker_falla = "1"  → el Worker contesta error
+               localStorage.proto_red_ms = "8000"     → tarda 8 s en contestar */
+          const demora = Number(localStorage.getItem("proto_red_ms") || 0);
+          const falla = localStorage.getItem("proto_worker_falla") === "1";
+          const responder = cuerpo => new Promise(ok => setTimeout(() => ok(new Response(JSON.stringify(cuerpo), { status: 200 })), demora));
+          if (falla) {
+            console.log("%c[PROTOTIPO] Worker simulado con error", "color:#ea580c;font-weight:700");
+            return responder({ status: "supabase_error", http: 503 });
+          }
+          /* Igual que el Worker real: misma firma = ya estaba, no se duplica. */
           const s = JSON.parse(localStorage.getItem("proto_enviados") || "[]");
-          s.push(p);
-          localStorage.setItem("proto_enviados", JSON.stringify(s));
-          console.log("%c[PROTOTIPO] pedido capturado (no salió a la red)", "color:#ea580c;font-weight:700", p);
+          const dup = s.some(x => x.sig && x.sig === p.sig);
+          if (!dup) {
+            p._capturadoEn = new Date().toISOString();
+            s.push(p);
+            localStorage.setItem("proto_enviados", JSON.stringify(s));
+          }
+          console.log("%c[PROTOTIPO] pedido capturado (no salió a la red)" + (dup ? " · repetido, ignorado" : ""), "color:#ea580c;font-weight:700", p);
+          return responder({ status: "ok", sig: p.sig, note: dup ? "duplicate" : undefined });
         }
       } catch (e) { console.warn("[PROTOTIPO] no se pudo capturar:", e); }
     } else {
@@ -11016,10 +11122,14 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       if (ultimo.qr) partes.push("Queruclor " + money(ultimo.qr));
       const sinSenal = !navigator.onLine;
       box.classList.add("v2-ok");
-      box.innerHTML = '<div class="v2-ok-ic">✓</div><h2>¡Pedido enviado!</h2>' +
+      /* «Enviado» recién lo sabe la cola cuando los dos destinos contestan:
+         acá el pedido quedó CONFIRMADO y guardado en el teléfono. Sin señal
+         se dice claro que todavía no salió. */
+      box.innerHTML = '<div class="v2-ok-ic">✓</div><h2>' + (sinSenal ? "Pedido guardado" : "¡Pedido confirmado!") + '</h2>' +
         (ultimo.nombre ? '<p class="v2-ok-cli">' + esc(ultimo.nombre) + '</p>' : "") +
         (partes.length ? '<p class="v2-ok-tot">' + partes.join(" · ") + '</p>' : "") +
-        (sinSenal ? '<p class="v2-ok-nota">Sin señal: quedó guardado y sale solo apenas vuelva.</p>' : "") +
+        (sinSenal ? '<p class="v2-ok-nota">Sin señal: todavía no salió. Sale solo apenas vuelva; lo ves en «Pedidos activos».</p>'
+                  : '<p class="v2-ok-nota">Enviándose… si se corta la señal, sale solo después.</p>') +
         (window.QR_PROTOTIPO ? '<p class="v2-ok-nota">Modo prueba: no se mandó a producción.</p>' : "");
       ultimo = null;
     }).observe(ov, { attributes: true, attributeFilter: ["style"] });
