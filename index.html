@@ -5936,6 +5936,155 @@ body{ padding-bottom:22px; }
 </script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
+   WHATSAPP AL CLIENTE — en español o en chino
+
+   Muchos clientes son súper chinos: mandarles la confirmación en su
+   idioma es un diferencial. En chino va cada frase en chino simplificado
+   con el español DEBAJO (lo entiende el dueño y también el empleado o el
+   vendedor si hay un reclamo), y cada producto con su nombre en chino y
+   en español. Lo que no está en el glosario va solo en español: un
+   nombre mal traducido confunde más que uno sin traducir. Montos,
+   número de cliente y mail no se traducen.
+
+   Sin dependencias (se prueba con whatsapp-idioma-test.js).
+   ═══════════════════════════════════════════════════════════════════ */
+(function (raiz) {
+  "use strict";
+
+  /* Glosario por palabra clave. Gana la clave más LARGA que aparezca
+     («TRAPO DE PISO» antes que «TRAPO»). Nombres genéricos, sin color ni
+     tamaño: el detalle exacto queda en el español de abajo. */
+  const GLOSARIO = [
+    // Queruclor
+    ["AGUA LAVANDINA", "漂白水"], ["LAVANDINA", "漂白水"],
+    ["LAVAVAJILLA", "洗洁精"], ["DETERGENTE", "洗洁精"],
+    ["LIQUIDO LIMPIADOR", "地板清洁剂"], ["LIMPIAPISOS", "地板清洁剂"], ["DESODORANTE DE PISO", "地板清洁剂"],
+    ["LAVAR ROPA", "洗衣液"], ["JABON LIQUIDO PARA LA ROPA", "洗衣液"], ["POLVO PARA LAVAR", "洗衣粉"], ["JABON EN POLVO", "洗衣粉"],
+    ["SUAVIZANTE", "衣物柔顺剂"], ["PERFUMANTE PARA ROPA", "衣物香氛"], ["QUITAMANCHAS", "去渍剂"],
+    ["POLVO LIMPIADOR", "去污粉"], ["CREMOSO", "乳状清洁剂"],
+    ["ANTIGRASA", "去油污清洁剂"], ["LIMPIA BAÑO", "浴室清洁剂"], ["LIMPIA VIDRIOS", "玻璃清洁剂"], ["LIMPIAVIDRIOS", "玻璃清洁剂"],
+    ["ESPIRAL", "蚊香"], ["TABLETA MATA MOSQUITOS", "电蚊香片"], ["TABLETA", "电蚊香片"],
+    ["MATA MOSCAS", "灭蚊蝇喷雾"], ["MATA CUCARACHAS", "杀蟑螂喷雾"], ["CEBO", "杀蟑饵"], ["INSECTICIDA", "杀虫剂"],
+    ["REPELENTE", "驱蚊液"], ["DESINFECTANTE", "消毒喷雾"], ["DESODORANTE DE AMBIENTES", "空气清新剂"],
+    ["AROMATIZADOR", "空气清新剂"], ["TALCO", "爽身粉"], ["ALCOHOL EN GEL", "免洗洗手凝胶"], ["ALCOHOL", "酒精"],
+    ["SHAMPOO", "洗发水"], ["ACONDICIONADOR", "护发素"], ["ANTITRANSPIRANTE", "止汗剂"], ["DESODORANTE", "除臭剂"],
+    ["FRAGANCIA", "香水"], ["JABON LIQUIDO", "洗手液"], ["JABON DE TOCADOR", "香皂"], ["JABON", "肥皂"],
+    ["NIEVE", "喷雪（派对用）"], ["TOALLITAS", "湿巾"],
+    // Mercado Limpio (artículos habituales)
+    ["TRAPO DE PISO", "地板布"], ["TRAPO", "抹布"], ["REJILLA", "洗碗布"], ["REPASADOR", "擦碗布"], ["FRANELA", "绒布"],
+    ["GAMUZA", "麂皮布"], ["PAÑO", "抹布"], ["MICROFIBRA", "超细纤维布"],
+    ["ESPONJA DE ACERO", "钢丝球"], ["VIRULANA", "钢丝球"], ["ACERO", "钢丝球"], ["ESPONJA", "海绵"],
+    ["ESCOBILLON", "扫帚"], ["ESCOBA", "扫帚"], ["SECADOR", "地板刮水器"], ["CABO", "长柄"], ["MOPA", "拖把"],
+    ["LAMPAZO", "拖把"], ["PALA", "簸箕"], ["PLUMERO", "掸子"], ["CEPILLO", "刷子"], ["SOPAPA", "马桶搋子"],
+    ["DESTAPACAÑERIA", "管道疏通器"], ["BALDE", "水桶"], ["FUENTON", "大盆"], ["PALANGANA", "盆"],
+    ["GUANTE", "手套"], ["BOLSA", "袋子"], ["CONSORCIO", "大垃圾袋"], ["RESIDUO", "垃圾袋"],
+    ["BROCHE", "衣夹"], ["PERCHA", "衣架"], ["CANASTO", "篮子"], ["CESTO", "篮子"], ["TACHO", "垃圾桶"],
+    ["PAPEL HIGIENICO", "卫生纸"], ["ROLLO DE COCINA", "厨房纸巾"], ["SERVILLETA", "餐巾纸"],
+    ["FILM", "保鲜膜"], ["ALUMINIO", "铝箔纸"], ["VELA", "蜡烛"], ["FOSFORO", "火柴"], ["ENCENDEDOR", "打火机"],
+    ["PULVERIZADOR", "喷壶"], ["ROCIADOR", "喷壶"], ["EMBUDO", "漏斗"], ["PINZA", "夹子"], ["BANDEJA", "托盘"],
+    ["SECAPLATOS", "沥碗架"], ["ESCURRIDOR", "沥碗架"], ["TENDER", "晾衣架"], ["SOGA", "晾衣绳"],
+  ];
+  const ORDEN = GLOSARIO.slice().sort((a, b) => b[0].length - a[0].length);
+  const sinTildes = s => String(s || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/Ñ/g, "N");
+
+  function chino(texto) {
+    const t = sinTildes(texto);
+    for (const [clave, zh] of ORDEN) if (t.includes(sinTildes(clave))) return zh;
+    return "";
+  }
+
+  /* «12 TRAPO DE PISO BLANCO» → «• 12 地板布\n   12 TRAPO DE PISO BLANCO». */
+  function lineaProducto(linea, idioma) {
+    const l = String(linea).trim();
+    if (idioma !== "zh") return "• " + l;
+    const m = l.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+    const zh = chino(m ? m[2] : l);
+    if (!zh) return "• " + l;
+    return "• " + (m ? m[1] + " " : "") + zh + "\n   " + l;
+  }
+
+  /* Queruclor: «2 cajas x 15 un - Lavandina Común 1L», «3 unidades sueltas - …»,
+     «Limpiapisos ODEX 900ml: Lavanda x2 cajas, …». En chino: nombre · cantidad (箱 = caja). */
+  function lineaQR(desc, idioma) {
+    const d = String(desc).trim();
+    if (idioma !== "zh") return "• " + d;
+    const zh = chino(d);
+    if (!zh) return "• " + d;
+    let cant = "";
+    const c = d.match(/^(\d+) cajas?\b/i), u = d.match(/^(\d+) unidad(es)?\b/i);
+    if (c) cant = " · " + c[1] + " 箱";
+    else if (u) cant = " · " + u[1] + " 个";
+    return "• " + zh + cant + "\n   " + d;
+  }
+
+  /* Cada frase: en chino arriba, español abajo. */
+  const T = {
+    hola: c => ["您好 *" + c + "*！👋", "Hola *" + c + "*! 👋"],
+    confirmamos: () => ["我们确认您的订单：", "Confirmamos tu pedido:"],
+    habituales: () => ["*日常商品 · ARTÍCULOS HABITUALES*"],
+    detalle: () => ["*明细 · Detalle:*"],
+    subtotal: v => ["小计 · Subtotal: " + v],
+    descuento: (p, v) => ["折扣 · Descuento " + p + "%: -" + v],
+    totalHab: v => ["*日常商品合计（预估）· TOTAL ARTÍCULOS HABITUALES (estimado): " + v + "*"],
+    totalQR: v => ["*Queruclor 合计 · TOTAL QUERUCLOR: " + v + "*"],
+    entrega: () => ["*48–72 小时内送达 · Entrega 48/72 hs.*"],
+    aviso: num => [
+      "如需在送货当天收到通知，请发电子邮件至 ventas@mercadolimpio.ar " + (num ? "并注明您的客户编号：*" + num + "*。" : "并注明您的客户编号。"),
+      "Si querés que te avisemos el día que llega, envianos un email a ventas@mercadolimpio.ar" + (num ? " con tu número de cliente: *" + num + "*." : " con tu número de cliente."),
+    ],
+    gracias: v => ["感谢您信任 Mercado Limpio！有任何问题请联系我，我是 " + v + "。",
+      "¡Gracias por confiar en Mercado Limpio! Cualquier cosa escribime, soy " + v + "."],
+  };
+  /* Español: el mensaje de siempre, frase por frase igual que antes. */
+  const ES = {
+    hola: c => ["Hola *" + c + "*! 👋"], confirmamos: () => ["Confirmamos tu pedido:"],
+    habituales: () => ["*ARTÍCULOS HABITUALES*"], detalle: () => ["*Detalle:*"],
+    subtotal: v => ["Subtotal: " + v], descuento: (p, v) => ["Descuento " + p + "%: -" + v],
+    totalHab: v => ["*TOTAL ARTÍCULOS HABITUALES (estimado): " + v + "*"], totalQR: v => ["*TOTAL QUERUCLOR: " + v + "*"],
+    entrega: () => ["*Entrega 48/72 hs.*"], aviso: num => [T.aviso(num)[1]], gracias: v => [T.gracias(v)[1]],
+  };
+
+  /* d = { cliente, numCliente, vendedor, habituales:[líneas], th:{sub,pct,desc,total}|null,
+           qr:[{desc, precio}], qrTotal } · plata = formateador de pesos */
+  function armar(d, idioma, plata) {
+    const X = idioma === "zh" ? T : ES;
+    const out = [...X.hola(d.cliente), "", ...X.confirmamos()];
+    const hayQR = d.qr && d.qr.length;
+    if (d.habituales && d.habituales.length) {
+      out.push("", ...(hayQR ? X.habituales() : X.detalle()), ...d.habituales.map(l => lineaProducto(l, idioma)));
+      const th = d.th;
+      if (th && th.sub > 0) {
+        out.push("");
+        if (th.pct > 0) out.push(...X.subtotal(plata(th.sub)), ...X.descuento(th.pct, plata(th.desc)));
+        out.push(...X.totalHab(plata(th.total)));
+      }
+    }
+    if (hayQR) {
+      out.push("", "*QUERUCLOR*");
+      for (const l of d.qr) out.push(lineaQR(l.desc, idioma), "   " + plata(l.precio));
+      out.push("", ...X.totalQR(plata(d.qrTotal)));
+    }
+    out.push("", ...X.entrega(), ...X.aviso(d.numCliente));
+    out.push("", ...X.gracias(d.vendedor));
+    return out.join("\n");
+  }
+
+  /* Idioma recordado por cliente (se preselecciona la próxima vez). */
+  const K = "wa_idioma_cliente_v1";
+  function recordado(num) { try { return (JSON.parse(localStorage.getItem(K)) || {})[num] || null; } catch (e) { return null; } }
+  function recordar(num, idioma) {
+    if (!num) return;
+    try { const m = JSON.parse(localStorage.getItem(K)) || {}; m[num] = idioma; localStorage.setItem(K, JSON.stringify(m)); } catch (e) {}
+  }
+
+  const api = { armar, chino, lineaProducto, lineaQR, recordado, recordar, GLOSARIO };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else raiz.WAIdioma = api;
+})(typeof window !== "undefined" ? window : globalThis);
+
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
    OFERTAS COMPARTIDAS — una sola fuente de verdad
 
    Antes las ofertas vivían solo en `localStorage.qofertas` del admin.
@@ -9291,53 +9440,77 @@ $("btnAiSummary").onclick = () => {
   const cart = QR.getCarrito();
   const numCliente = $("numeroCliente").value.trim();
   const c = clientNames[numCliente];
-  const cliente = c ? c.name : "Cliente";
-  const vendedor = $("nombreVendedor").value || "Vendedor";
-  const habituales = $("productos").value.split("\n").map(s => s.trim()).filter(Boolean);
-
-  const partes = [`Hola *${cliente}*! 👋`, "", "Confirmamos tu pedido:"];
-
-  /* El bloque de Queruclor aparece solo si hay carrito, pero el resto del
-     mensaje (encabezado, plazo de entrega, cierre) es el mismo para todos:
-     no tiene sentido que dos clientes reciban promesas distintas. */
-  if (habituales.length) {
-    partes.push("", cart.length ? "*ARTÍCULOS HABITUALES*" : "*Detalle:*",
-      ...habituales.map(l => "• " + l));
-    const th = window.v2TotalesHabituales && window.v2TotalesHabituales();
-    if (th && th.sub > 0) {
-      if (th.pct > 0) {
-        partes.push("", `Subtotal: ${plata(th.sub)}`, `Descuento ${th.pct}%: -${plata(th.desc)}`,
-          `*TOTAL ARTÍCULOS HABITUALES (estimado): ${plata(th.total)}*`);
-      } else {
-        partes.push("", `*TOTAL ARTÍCULOS HABITUALES (estimado): ${plata(th.total)}*`);
-      }
-    }
-  }
-
-  if (cart.length) {
-    const t = QR.totales();
-    partes.push("", "*QUERUCLOR*");
-    for (const l of QR.lineasWA()) partes.push(`• ${l.desc}`, `   ${plata(l.precio)}`);
-
-    partes.push("", `*TOTAL QUERUCLOR: ${plata(t.total)}*`);
-  }
-
   /* El plazo va sin fecha fija: la del formulario es la de reparto interno,
-     no una promesa al cliente. El mail se escribe pelado y seguido de un
-     espacio — WhatsApp autodetecta los correos y los deja tocables, pero
-     si les pega un signo de puntuación puede comerse el enlace.
-
-     El número de cliente va directo en el mensaje: si no, tiene que
-     buscarlo en otro lado para poder mandar ese email — con esto ya lo
-     tiene a mano, solo copia y pega. */
-  partes.push("", "*Entrega 48/72 hs.*",
-    "Si querés que te avisemos el día que llega, envianos un email a ventas@mercadolimpio.ar" +
-      (numCliente ? ` con tu número de cliente: *${numCliente}*.` : " con tu número de cliente."));
-
-  partes.push("", `¡Gracias por confiar en Mercado Limpio! Cualquier cosa escribime, soy ${vendedor}.`);
-
-  window.open("https://wa.me/?text=" + encodeURIComponent(partes.join("\n")), "_blank");
+     no una promesa al cliente. El número de cliente va en el mensaje para
+     que pueda pedir el aviso por mail sin buscarlo. Los textos (español y
+     chino) viven en whatsapp-idioma.js. */
+  const datos = {
+    cliente: c ? c.name : "Cliente",
+    numCliente,
+    vendedor: $("nombreVendedor").value || "Vendedor",
+    habituales: $("productos").value.split("\n").map(s => s.trim()).filter(Boolean),
+    th: window.v2TotalesHabituales ? window.v2TotalesHabituales() : null,
+    qr: cart.length ? QR.lineasWA() : [],
+    qrTotal: cart.length ? QR.totales().total : 0,
+  };
+  const abrir = idioma => window.open("https://wa.me/?text=" + encodeURIComponent(WAIdioma.armar(datos, idioma, plata)), "_blank");
+  if (!window.WAIdioma) return;
+  elegirIdioma(numCliente, abrir);
 };
+
+/* ── ¿Español o chino? ─────────────────────────────────────────────
+   Una ventana chica con dos botones grandes. Viene marcado el idioma que
+   se usó la última vez con ese cliente: un toque y sale. */
+function elegirIdioma(numCliente, alElegir) {
+  let bg = $("waIdioma");
+  if (!bg) {
+    const st = document.createElement("style");
+    st.textContent = `
+      .wa-idioma-bg{ position:fixed; inset:0; z-index:3000; display:none; align-items:flex-end; justify-content:center;
+        background:rgba(15,23,42,.55); padding:0 }
+      .wa-idioma-bg.abierto{ display:flex }
+      .wa-idioma{ width:100%; max-width:480px; background:#fff; border-radius:22px 22px 0 0; padding:18px 16px calc(16px + env(safe-area-inset-bottom,0px));
+        box-shadow:0 -10px 40px rgba(0,0,0,.25); font-family:inherit; color:#0f172a; animation:waSube .22s cubic-bezier(.2,.8,.3,1) }
+      @media (min-width:600px){ .wa-idioma-bg{ align-items:center } .wa-idioma{ border-radius:22px } }
+      @keyframes waSube{ from{ transform:translateY(40px); opacity:.4 } to{ transform:none; opacity:1 } }
+      @media (prefers-reduced-motion:reduce){ .wa-idioma{ animation:none } }
+      .wa-idioma h3{ margin:0 0 4px; font-size:19px; font-weight:800 }
+      .wa-idioma p{ margin:0 0 14px; font-size:13.5px; color:#475569 }
+      .wa-idioma-bt{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+      .wa-idioma-bt button{ min-height:84px; border:2px solid #e2e8f0; border-radius:16px; background:#fff; font:inherit; cursor:pointer;
+        display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:10px; color:#0f172a }
+      .wa-idioma-bt button b{ font-size:18px; font-weight:800 }
+      .wa-idioma-bt button small{ font-size:12px; color:#475569; text-align:center; line-height:1.3 }
+      .wa-idioma-bt button.pre{ border-color:#25D366; background:#effcf3; box-shadow:0 0 0 3px #c9f2d6 }
+      .wa-idioma-bt button.pre::after{ content:"Último usado"; font-size:11px; font-weight:800; color:#15803d }
+      .wa-idioma-no{ width:100%; margin-top:10px; min-height:48px; border:0; border-radius:14px; background:#f1f5f9; color:#334155;
+        font:inherit; font-size:15px; font-weight:700; cursor:pointer }`;
+    document.head.appendChild(st);
+    bg = document.createElement("div");
+    bg.id = "waIdioma"; bg.className = "wa-idioma-bg";
+    bg.innerHTML = '<div class="wa-idioma" role="dialog" aria-label="Idioma del mensaje">' +
+      '<h3>¿En qué idioma le mandamos el pedido?</h3>' +
+      '<p>Queda recordado para este cliente.</p>' +
+      '<div class="wa-idioma-bt">' +
+        '<button type="button" data-l="es"><b>Español</b><small>Como siempre</small></button>' +
+        '<button type="button" data-l="zh"><b>中文 · Chino</b><small>Cada frase en chino, con el español debajo</small></button>' +
+      '</div>' +
+      '<button type="button" class="wa-idioma-no" data-l="">Cancelar</button></div>';
+    document.body.appendChild(bg);
+    bg.addEventListener("click", e => { if (e.target === bg) bg.classList.remove("abierto"); });
+  }
+  const pre = WAIdioma.recordado(numCliente);
+  bg.querySelectorAll("[data-l]").forEach(b => {
+    b.classList.toggle("pre", !!b.dataset.l && b.dataset.l === pre);
+    b.onclick = () => {
+      bg.classList.remove("abierto");
+      if (!b.dataset.l) return;
+      WAIdioma.recordar(numCliente, b.dataset.l);
+      alElegir(b.dataset.l);
+    };
+  });
+  bg.classList.add("abierto");
+}
 
 /* ── Envío ──────────────────────────────────────────────────────── */
 const _origEnviar = $("btnEnviar").onclick;
@@ -10096,6 +10269,67 @@ body.ui2 #v2CliBg.abierto .v2-sheet{ animation:v2CliSube .24s cubic-bezier(.2,.8
 
 body.ui2 #v2CliBg #clienteDropdown > .ac-header{ min-height:0; }
 
+/* ═══ Sugerencias del catálogo al escribir (ui-v2.js) ══════════════ */
+body.ui2 .v2-sugcat{ flex:0 0 auto; max-width:82vw; display:inline-flex; align-items:center; gap:8px; min-height:40px;
+  padding:6px 12px; border-radius:999px; border:1.5px solid #12854c; background:#fff; color:#0e6b3e;
+  font:inherit; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap }
+body.ui2 .v2-sugcat span{ overflow:hidden; text-overflow:ellipsis; min-width:0 }
+body.ui2 .v2-sugcat b{ flex:none; font-size:12px; font-weight:800; color:#fff; background:#0e6b3e; border-radius:99px; padding:2px 8px;
+  font-variant-numeric:tabular-nums }
+
+/* Buscar desde «Escribir» muestra el catálogo: se avisa que lo escrito sigue ahí. */
+body.ui2 .v2-busqaviso{ display:none; align-items:center; gap:10px; margin:6px 0 4px; padding:9px 12px; border-radius:12px;
+  background:#e7f4ec; color:#0e6b3e; font-size:13px; font-weight:600; line-height:1.35 }
+body.ui2 .v2-busqaviso.on{ display:flex }
+body.ui2 .v2-busqaviso span{ flex:1; min-width:0 }
+body.ui2 .v2-busqaviso button{ flex:none; min-height:38px; padding:0 12px; border:1.5px solid #12854c; border-radius:10px;
+  background:#fff; color:#0e6b3e; font:inherit; font-size:12.5px; font-weight:800; cursor:pointer }
+
+/* ═══ Historial con «Repetir» (ui-v2.js · pintarHistorial) ═════════ */
+.v2-hist{ display:none; }
+@media (max-width:899px){
+  body.ui2[data-v2="historial"] .v2-head{ display:flex; }
+  body.ui2[data-v2="historial"] .v2-hist{ display:block; padding:76px 14px calc(24px + var(--v2-safe)); max-width:640px; margin:0 auto; }
+  body.ui2[data-v2="historial"] main, body.ui2[data-v2="historial"] #queruclorTab{ display:none !important; }
+}
+.v2-hsec{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:14px 2px 8px; }
+.v2-hsec b{ font-size:15px; font-weight:800; color:#0f172a; }
+.v2-hsec small{ font-size:12.5px; color:#64748b; }
+.v2-hre{ min-height:40px; padding:0 14px; border:1.5px solid #12854c; border-radius:12px; background:#fff; color:#0e6b3e; font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+.v2-hcard{ display:flex; align-items:center; gap:12px; background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:12px 12px 12px 14px; margin-bottom:8px; }
+.v2-hcard .t{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; align-items:flex-start; }
+.v2-hcard .t b{ font-size:15.5px; font-weight:800; color:#0f172a; line-height:1.25; }
+.v2-hcard .t small{ font-size:13px; color:#475569; }
+.v2-hest{ display:inline-block; padding:3px 9px; border-radius:99px; font-size:12px; font-weight:800; white-space:nowrap; }
+.v2-hest.ok{ background:#dcfce7; color:#15803d; }
+.v2-hest.ambar{ background:#fef3c7; color:#92400e; }
+.v2-hrep{ flex:none; min-height:48px; padding:0 14px; border:0; border-radius:14px; background:linear-gradient(135deg,#0e6b3e,#12854c); color:#fff; font:inherit; font-size:14px; font-weight:800; cursor:pointer; white-space:nowrap; }
+.v2-hrep:active{ transform:scale(.97); }
+
+/* ═══ Clientes: Mi cartera / Todos ═══════════════════════════════ */
+body.ui2 .v2-cartera{ display:flex; gap:6px; margin:0 0 10px; }
+body.ui2 .v2-cartera button{ flex:1; min-height:42px; border:1.5px solid #e2e8f0; border-radius:12px; background:#fff; color:#334155; font:inherit; font-size:14px; font-weight:800; cursor:pointer; }
+body.ui2 .v2-cartera button.on{ background:#0e6b3e; border-color:#0e6b3e; color:#fff; }
+body.ui2 #v2CliBg .ac-toggle{ display:none !important; }
+
+/* ═══ Sin señal: franja fija debajo de la cabecera ════════════════ */
+.v2-offstrip{ display:none; }
+@media (max-width:899px){
+  body.ui2.v2-offline .v2-offstrip{ display:flex; align-items:center; justify-content:center; gap:8px; position:fixed; left:0; right:0; top:64px; z-index:790;
+    padding:7px 12px; background:#fef3c7; color:#92400e; font-size:13px; font-weight:700; box-shadow:0 2px 6px rgba(15,23,42,.08); }
+  body.ui2.v2-offline[data-v2="home"] .v2-offstrip{ top:0; }
+  body.ui2.v2-offline .v2-offstrip .pt{ width:9px; height:9px; border-radius:50%; background:#d97706; }
+}
+
+/* ═══ Resumen: tachito por renglón y color de Queruclor ════════════ */
+body.ui2 .v2-lin-x{ flex:none; width:40px; height:40px; border:0; border-radius:12px; background:#fef2f2; color:#b91c1c; display:grid; place-items:center; cursor:pointer; }
+body.ui2.v2-res-qr .v2-rhead, body.ui2.v2-res-qr .v2-enviar{ background:linear-gradient(135deg,#a3006a,#d6007c); }
+
+/* ═══ Ideas: mismo verde y misma letra que el resto ════════════════ */
+body.ui2 #predicciones button[onclick^="precargarCliente"]{ background:linear-gradient(135deg,#0e6b3e,#12854c) !important; color:#fff !important; min-height:46px; }
+body.ui2 #predicciones [style*="Roboto Mono"], body.ui2 #predicciones [style*="monospace"]{ font-family:inherit !important; font-size:13px !important; color:#475569 !important; }
+@media (max-width:360px){ body.ui2 .v2-lin-x{ width:34px; height:34px; border-radius:10px; } body.ui2 .v2-lin{ gap:6px; } }
+
 /* ═══════════════════════════════════════════════════════════════════
    QUERUCLOR — TARJETAS (ver qr-tarjetas.js)
 
@@ -10472,6 +10706,8 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       </div>
       <div class="v2-snack" id="v2Snack" role="status" aria-live="polite" hidden></div>
 
+      <section class="v2-hist" id="v2Hist"><div id="v2HistLista"></div></section>
+
       <section class="v2-res" id="v2Res">
         <div class="v2-rhead"><button class="v2-back" id="v2ResBack" type="button" aria-label="Volver">‹</button><h2>Resumen del pedido</h2></div>
         <div class="v2-rbody" id="v2ResBody">
@@ -10541,7 +10777,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   }
 
   /* ═══ NAVEGACIÓN ════════════════════════════════════════════════ */
-  const TITULOS = { cola: "Pedidos activos", ideas: "Ideas", stats: "Estadísticas" };
+  const TITULOS = { cola: "Pedidos activos", ideas: "Ideas", stats: "Estadísticas", historial: "Historial de pedidos" };
   function ir(p, opt) {
     if (!MQ.matches) return;
     opt = opt || {};
@@ -10556,6 +10792,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     else if (p === "ideas") seguro(() => switchTab("pred"));
     else if (p === "stats") seguro(() => switchTab("stats"));
     else if (p === "resumen") { S.resHash = null; pintarResumen(); }
+    else if (p === "historial") pintarHistorial();
     refrescar();
     if (p !== "resumen") window.scrollTo(0, 0);
     if (!opt.sinHistoria) history.pushState({ v2: p }, "");
@@ -10804,6 +11041,68 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     box.style.display = html ? "" : "none";
   }
 
+  /* ═══ HISTORIAL: lo que falta mandar y lo último que se mandó ════
+     Arriba, lo que está en el teléfono esperando salir (con su estado
+     real). Abajo, los pedidos de ESTE vendedor que ya llegaron, con
+     «Repetir» en cada uno: el «traeme lo mismo que la otra vez». */
+  const fechaLinda = f => { try { return new Date(f + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "2-digit" }); } catch (e) { return f; } };
+  const nombreCli = id => { let n = ""; seguro(() => { n = (clientNames[id] || {}).name || ""; }); return n || "Cliente N° " + id; };
+  let _histItems = [];
+  function pintarHistorial() {
+    const box = $("v2HistLista"); if (!box) return;
+    const yo = (localStorage.getItem("nombreVendedor") || "").trim();
+    let cola = [], hist = [];
+    seguro(() => { cola = getQueue(); });
+    seguro(() => {
+      hist = globalHistorial.filter(x => x.fecha && x.productos && (!yo || vendedorMatch(x.vendedor, yo)))
+        .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).slice(0, 40);
+    });
+    _histItems = hist;
+    const nArt = t => String(t || "").split("\n").filter(l => l.trim()).length;
+    let html = "";
+    if (cola.length) {
+      html += `<div class="v2-hsec"><b>Por enviar · ${cola.length}</b><button type="button" class="v2-hre" data-reintentar="1">Reintentar ahora</button></div>` +
+        cola.map(p => {
+          const est = !navigator.onLine ? ["ambar", "Esperando señal"]
+            : p.okForm && !p.okWorker ? ["ambar", "Falta llegar al depósito"] : ["ambar", "Enviándose"];
+          return `<div class="v2-hcard"><div class="t"><b>${esc(nombreCli(p.numeroCliente))}</b>
+            <small>Entrega ${esc(fechaLinda(p.fechaEntrega))} · ${nArt(p.productos)} artículos</small></div>
+            <span class="v2-hest ${est[0]}">${est[1]}</span></div>`;
+        }).join("");
+    }
+    html += `<div class="v2-hsec"><b>Enviados</b><small>${yo ? "tus últimos pedidos" : "elegí tu nombre de vendedor para ver los tuyos"}</small></div>`;
+    html += hist.length ? hist.map((x, i) => `<div class="v2-hcard"><div class="t"><b>${esc(nombreCli(x.cliente))}</b>
+        <small>Entrega ${esc(fechaLinda(x.fecha))} · ${nArt(x.productos)} artículos</small>
+        <span class="v2-hest ok">✓ Enviado</span></div>
+        <button type="button" class="v2-hrep" data-rep-i="${i}">↻ Repetir</button></div>`).join("")
+      : `<div class="v2-vacio-res">Todavía no hay pedidos tuyos para mostrar${navigator.onLine ? "" : " (sin señal)"}.</div>`;
+    if (box._html !== html) { box.innerHTML = html; box._html = html; }
+  }
+  /* Repetir: carga cliente y artículos para REVISAR antes de mandar (nunca
+     manda solo). Queruclor: lo que era caja cerrada vuelve al carrito; las
+     surtidas y aromas se avisan, porque fueron una elección de esa vez. */
+  function repetirDe(x) {
+    const lineas = String(x.productos).split("\n").map(l => l.trim()).filter(Boolean);
+    const ml = lineas.filter(l => !/QUERUCLOR/.test(l)), qrL = lineas.filter(l => /QUERUCLOR/.test(l));
+    const actual = clienteId();
+    const hayAlgo = !!$("productos").value.trim() || seguro(() => QR.totalCajas() > 0);
+    if (hayAlgo && actual && actual !== String(x.cliente)) {
+      confirmApp({ titulo: "Tenés un pedido a medias", mensaje: "Hay productos cargados para <b>" + esc(nombreCli(actual)) +
+        "</b>. Mandalo o vacialo antes de repetir el de <b>" + esc(nombreCli(x.cliente)) + "</b>.", si: "IR AL PEDIDO", no: "CERRAR" }, () => ir("resumen"));
+      return;
+    }
+    const hacer = () => {
+      if (actual !== String(x.cliente)) { $("numeroCliente").value = x.cliente; seguro(() => selectCliente(String(x.cliente))); }
+      ml.forEach(l => { const m = l.match(/^(\d+)\s+(.+)$/); if (m) sumarTexto(m[2], +m[1]); else sumarTexto(l, 1); });
+      let qrNo = 0;
+      qrL.forEach(l => { const r = lineaQRSimple(l); if (r) seguro(() => QR.chgQty(r.ean, r.n)); else qrNo++; });
+      ir("resumen");
+      toast("Pedido cargado para revisar" + (qrNo ? " · " + qrNo + " de Queruclor (surtidas/aromas) hay que cargarlo a mano" : ""), qrNo ? "error" : "ok");
+    };
+    if (hayAlgo) confirmApp({ titulo: "Ya hay productos cargados", mensaje: "Se van a <b>sumar</b> los del pedido del " + esc(fechaLinda(x.fecha)) + " a lo que ya tenés armado.", si: "SÍ, SUMAR", no: "NO" }, hacer);
+    else hacer();
+  }
+
   /* ═══ LISTA COMPACTA (reemplaza la grilla de fotos grandes) ═════ */
   function filaHtml(p, i) {
     const pres = cvGetPres(p), lista = cvPresDe(p), factor = pres.factor || 1;
@@ -10868,6 +11167,16 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const inp = $("cvBuscador");
     Promise.resolve(cvInit()).then(() => { inp.value = v; inp.dispatchEvent(new Event("input")); });
     if (!v && S.modoPrevio === "escribir") { S.modoPrevio = null; setCargaModo("escribir"); }
+    /* Buscar desde «Escribir» abre el catálogo: se dice, y se ofrece volver.
+       Lo escrito no se toca (vive en el cuadro de texto). */
+    let av = $("v2BusqAviso");
+    if (!av) {
+      av = document.createElement("div"); av.id = "v2BusqAviso"; av.className = "v2-busqaviso";
+      av.innerHTML = '<span>Estás viendo el <b>catálogo</b>. Lo que escribiste sigue guardado.</span><button type="button">Volver a Escribir</button>';
+      av.querySelector("button").onclick = () => { $("v2Q").value = ""; buscar(""); };
+      $("v2Search").after(av);
+    }
+    av.classList.toggle("on", !!v && S.modoPrevio === "escribir");
   }
 
   /* ═══ RESUMEN ═══════════════════════════════════════════════════ */
@@ -10888,7 +11197,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
         } else sub = `<div class="sub sin">Sin precio cargado</div>`;
       }
       const ctrl = l.cant != null
-        ? `<div class="v2-qty"><button type="button" data-l="${l.i}" data-d="-${paso}">−</button><span class="n">${l.cant}</span><button type="button" class="mas" data-l="${l.i}" data-d="${paso}">+</button></div>`
+        ? `<button type="button" class="v2-lin-x" data-l="${l.i}" data-d="x" aria-label="Quitar este renglón"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button><div class="v2-qty"><button type="button" data-l="${l.i}" data-d="-${paso}">−</button><span class="n">${l.cant}</span><button type="button" class="mas" data-l="${l.i}" data-d="${paso}">+</button></div>`
         : `<div class="v2-qty"><button type="button" data-l="${l.i}" data-d="x" aria-label="Quitar">✕</button></div>`;
       return `<div class="v2-lin"><div class="t"><div class="nom">${esc(nombre)}</div>${sub}</div>${ctrl}</div>`;
     }).join("") : "";
@@ -10900,8 +11209,8 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
        nada, y ENVIAR manda lo que haya: una parte sola o las dos. */
     const qr = qrResumen();
     const hayML = ls.length > 0;
-    const mlHead = `<div class="v2-rsec"><b>Artículos habituales</b>${hayML ? `<small>${t.n} producto${t.n === 1 ? "" : "s"}</small>` : ""}</div>`;
-    const mlFalta = `<button type="button" class="v2-ragr" data-agr="cargar">+ Agregar artículos habituales</button>`;
+    const mlHead = `<div class="v2-rsec"><b>Mercado Limpio</b>${hayML ? `<small>${t.n} producto${t.n === 1 ? "" : "s"}</small>` : ""}</div>`;
+    const mlFalta = `<button type="button" class="v2-ragr" data-agr="cargar">+ Agregar artículos de Mercado Limpio</button>`;
     const qrHead = `<div class="v2-rsec qr"><b>Queruclor</b>${qr.n ? `<button type="button" class="v2-redit" data-agr="queruclor">Editar</button>` : ""}</div>`;
     const qrFalta = `<button type="button" class="v2-ragr qr" data-agr="queruclor">+ Agregar Queruclor</button>`;
     const qrLineas = qr.lineas.map(l =>
@@ -10912,9 +11221,9 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       : mlHead + (hayML ? $("v2Lineas").innerHTML : mlFalta) + qrHead + (qr.n ? qrLineas : qrFalta);
 
     const totML = t.sub
-      ? `<div><span>Subtotal habituales</span><span>${money(t.sub)}</span></div>` +
+      ? `<div><span>Subtotal Mercado Limpio</span><span>${money(t.sub)}</span></div>` +
         (t.pct ? `<div><span>Descuento cliente (${t.pct}%)</span><span>− ${money(t.desc)}</span></div>` : "") +
-        `<div><span>Total habituales (aprox.)</span><span>${money(t.total)}</span></div>`
+        `<div><span>Total Mercado Limpio (aprox.)</span><span>${money(t.total)}</span></div>`
       : "";
     const totQR = qr.n ? `<div><span>Total Queruclor</span><span>${money(qr.total)}</span></div>` : "";
     const ambos = hayML && qr.n;
@@ -10924,6 +11233,8 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
         : "") +
       (hayML && t.sinPrecio ? `<small>${t.sinPrecio} renglón(es) sin precio no suman.</small>` : "");
 
+    /* Solo Queruclor: la pantalla toma su color, como el resto del módulo. */
+    document.body.classList.toggle("v2-res-qr", !hayML && !!qr.n);
     const bt = $("btnEnviar");
     $("v2Enviar").textContent = ambos ? "ENVIAR PEDIDO COMPLETO" : qr.n && !hayML ? "ENVIAR SOLO QUERUCLOR" : "ENVIAR PEDIDO";
     $("v2Enviar").disabled = bt.disabled || (!hayML && !qr.n);
@@ -11053,7 +11364,12 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   function cablear() {
     $("v2GoCargar").onclick = () => entrarModulo("cargar");
     $("v2GoQr").onclick = () => entrarModulo("queruclor");
-    $("v2GoCola").onclick = () => ir("cola");
+    $("v2GoCola").onclick = () => ir("historial");
+    $("v2HistLista").addEventListener("click", e => {
+      if (e.target.closest("[data-reintentar]")) { seguro(() => $("btnReintentarTodos").click()); toast("Reintentando…"); setTimeout(pintarHistorial, 1500); return; }
+      const b = e.target.closest("[data-rep-i]"); if (!b) return;
+      const x = _histItems[+b.dataset.repI]; if (x) repetirDe(x);
+    });
     $("v2Hola").onclick = () => abrirCliente();
     $("v2Cli").onclick = () => { if (S.p === "cargar" || S.p === "queruclor") abrirCliente(); };
     $("v2Back").onclick = () => {
@@ -11103,7 +11419,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     });
     $("v2Nav").querySelectorAll("button").forEach(b => b.onclick = () => {
       const n = b.dataset.n;
-      if (n === "home") ir("home"); else if (n === "clientes") abrirCliente(); else if (n === "cola") ir("cola"); else $("v2MasBg").classList.add("abierto");
+      if (n === "home") ir("home"); else if (n === "clientes") abrirCliente(); else if (n === "cola") ir("historial"); else $("v2MasBg").classList.add("abierto");
     });
 
     /* Resumen: cantidades editables */
@@ -11190,7 +11506,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     });
     /* Cambios de cliente / historial que llegan de forma asíncrona */
     $("numeroCliente").addEventListener("input", () => setTimeout(() => { renderQuick(); renderQuickQR(); refrescar(); }, 0));
-    setInterval(() => { if (MQ.matches) { refrescar(); if (S.p === "cargar") renderQuick(); else if (S.p === "queruclor") renderQuickQR(); } }, 1200);
+    setInterval(() => { if (MQ.matches) { refrescar(); if (S.p === "cargar") renderQuick(); else if (S.p === "queruclor") renderQuickQR(); else if (S.p === "historial") pintarHistorial(); } }, 1200);
     /* Botón «enviar» original: que el resumen refleje ENVIANDO… */
     seguro(() => new MutationObserver(() => { if (S.p === "resumen") pintarResumen(); }).observe($("btnEnviar"), { childList: true, subtree: true, attributes: true }));
   }
@@ -11263,6 +11579,130 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     }
   })();
 
+  /* ═══ CLIENTES: «Mi cartera» o «Todos», a la vista ═══════════════
+     El filtro por cartera ya existía, pero escondido al pie de la lista
+     y solo mientras se escribía. Ahora son dos botones arriba, y con el
+     campo vacío se ven los recientes Y la cartera entera (antes solo los
+     recientes: había que acordarse del nombre para encontrar a alguien).
+     Se monta desde iniciar(), después de armar() (la hoja todavía no existe acá). */
+  function montarCartera() {
+    const slot = $("v2CliSlot"), orig = window.showAutocomplete;
+    if (!slot || typeof orig !== "function") return;
+    let todos = false;                                   // espejo de _verTodosCartera de la app original
+    const chips = document.createElement("div");
+    chips.className = "v2-cartera"; chips.setAttribute("role", "group"); chips.setAttribute("aria-label", "Qué clientes mostrar");
+    chips.innerHTML = '<button type="button" data-t="0" class="on">★ Mi cartera</button><button type="button" data-t="1">Todos</button>';
+    slot.insertBefore(chips, slot.firstChild);
+    chips.addEventListener("mousedown", e => e.preventDefault());   // que no se cierre el teclado
+    chips.addEventListener("click", e => {
+      const b = e.target.closest("[data-t]"); if (!b) return;
+      const quiero = b.dataset.t === "1";
+      if (quiero !== todos) { todos = quiero; seguro(() => toggleVerTodos({ preventDefault() {}, stopPropagation() {} })); }
+      chips.querySelectorAll("button").forEach(x => x.classList.toggle("on", (x.dataset.t === "1") === todos));
+      seguro(() => window.showAutocomplete($("numeroCliente").value, { autoSelect: false }));
+      seguro(() => $("numeroCliente").focus({ preventScroll: true }));
+    });
+    const prev = window.showAutocomplete;
+    window.showAutocomplete = function (q, opts) {
+      if (!MQ.matches || String(q || "").trim()) return prev.apply(this, arguments);
+      const drop = $("clienteDropdown"); if (!drop) return prev.apply(this, arguments);
+      let rec = [], cart = [];
+      seguro(() => {
+        rec = getRecentClients().map(id => [id, clientNames[id]]).filter(x => x[1]);
+        if (!todos) cart = Object.entries(clientNames).filter(([id, c]) => esDeMiCartera(c) && !rec.some(r => r[0] === id))
+          .sort((a, b) => a[1].name.localeCompare(b[1].name));
+      });
+      if (!rec.length && !cart.length && !todos) return prev.apply(this, arguments);
+      let html = "";
+      if (rec.length) html += '<div class="ac-header">Recientes</div>' + rec.map(([id, c], i) => acItemHtml(id, c, i === 0, seguro(() => esDeMiCartera(c)))).join("");
+      if (cart.length) html += '<div class="ac-header">★ Tu cartera · ' + cart.length + '</div>' + cart.map(([id, c]) => acItemHtml(id, c, false, true)).join("");
+      if (todos) html += '<div class="ac-header">Escribí número, nombre o dirección para buscar entre todos</div>';
+      drop.innerHTML = html; drop.style.display = "block";
+    };
+  }
+
+  /* ═══ SIN SEÑAL: una franja fija, no una ventana ═════════════════
+     La app ya guarda y manda sola: no hace falta interrumpir. */
+  (function () {
+    const f = document.createElement("div");
+    f.className = "v2-offstrip"; f.setAttribute("role", "status");
+    f.innerHTML = '<span class="pt"></span>Sin señal · los pedidos se guardan y salen solos';
+    document.body.appendChild(f);
+    const pintar = () => document.body.classList.toggle("v2-offline", !navigator.onLine);
+    window.addEventListener("online", pintar); window.addEventListener("offline", pintar); pintar();
+  })();
+
+  /* ═══ SUGERENCIAS DEL CATÁLOGO AL ESCRIBIR ═══════════════════════
+     La barra de sugerencias original sale del HISTORIAL (texto libre):
+     elegir de ahí casi nunca coincide con el catálogo y el renglón queda
+     «sin precio». Acá se suman, al final de la misma barra, productos del
+     CATÁLOGO con su precio. Tocar uno reemplaza el renglón por el nombre
+     exacto del catálogo (así suma plata) y conserva la cantidad tipeada.
+     Nunca se cambia nada solo: solo si el vendedor toca la sugerencia. */
+  (function () {
+    const ta = $("productos"), barra = $("prodSug");
+    if (!ta || !barra) return;
+    const norm = s => String(s || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    let ctx = null;
+    function lineaCursor() {
+      const pos = ta.selectionStart, val = ta.value;
+      const start = val.lastIndexOf("\n", pos - 1) + 1;
+      let end = val.indexOf("\n", pos); if (end === -1) end = val.length;
+      const linea = val.slice(start, end);
+      const m = linea.match(/^(\s*\d+(?:[.,]\d+)?\s*)?(.*)$/);
+      return { start, end, qty: ((m && m[1]) || "").trim(), prod: (m && m[2]) || "", linea };
+    }
+    function candidatos(q) {
+      if (typeof CV_CATALOGO === "undefined" || !CV_CATALOGO.length) return [];
+      const palabras = norm(q).split(/\s+/).filter(w => w.length >= 2);
+      if (!palabras.length) return [];
+      const out = [];
+      for (const p of CV_CATALOGO) {
+        if (!p.mayorista) continue;                     // sin precio no aporta nada sobre el historial
+        for (const pr of cvPresDe(p)) {
+          const desc = cvDescriptor(p, pr), d = norm(desc + " " + (p.marca || ""));
+          if (!palabras.every(w => d.includes(w))) continue;
+          out.push({ desc, precio: p.mayorista * (pr.factor || 1), pres: pr.id === "un" ? "u" : pr.label.toLowerCase(),
+            empieza: d.startsWith(palabras[0]) ? 0 : 1, largo: desc.length });
+        }
+      }
+      return out.sort((a, b) => a.empieza - b.empieza || a.largo - b.largo).slice(0, 5);
+    }
+    function pintar() {
+      barra.querySelectorAll(".v2-sugcat").forEach(b => b.remove());
+      if (!MQ.matches) return;
+      const c = lineaCursor();
+      if (c.prod.trim().length < 3) return;
+      const ya = norm(c.prod).trim();
+      const lista = candidatos(c.prod).filter(x => norm(x.desc) !== ya);
+      if (!lista.length) return;
+      ctx = c;
+      /* Van PRIMERO (traen precio). Si el historial sugiere el mismo nombre, queda solo el del catálogo. */
+      const nombres = new Set(lista.map(x => norm(x.desc)));
+      barra.querySelectorAll(".sug-chip").forEach(b => { if (nombres.has(norm(b.dataset.prod))) b.remove(); });
+      barra.insertAdjacentHTML("afterbegin", lista.map(x =>
+        `<button type="button" class="v2-sugcat" data-desc="${esc(x.desc)}"><span>${esc(x.desc)}</span><b>${money(x.precio)}/${esc(x.pres)}</b></button>`).join(""));
+      barra.style.display = "flex";
+    }
+    /* Después de que la barra original se dibuje (mismo evento). */
+    ["input", "focus", "click"].forEach(ev => ta.addEventListener(ev, () => setTimeout(pintar, 0)));
+    barra.addEventListener("click", e => {
+      const b = e.target.closest(".v2-sugcat"); if (!b) return;
+      e.stopPropagation();
+      let c = ctx;
+      if (!c || ta.value.slice(c.start, c.end) !== c.linea) c = lineaCursor();
+      const nueva = (c.qty ? c.qty + " " : "") + b.dataset.desc;
+      const val = ta.value, despues = val.slice(c.end);
+      ta.value = val.slice(0, c.start) + nueva + (despues.startsWith("\n") ? "" : "\n") + despues;
+      const pos = c.start + nueva.length + 1;
+      ta.focus(); try { ta.setSelectionRange(pos, pos); } catch (er) {}
+      ctx = null;
+      barra.style.display = "none"; barra.innerHTML = "";
+      despuesDeEditar();
+      seguro(() => navigator.vibrate && navigator.vibrate(8));
+    }, true);
+  })();
+
   /* ═══ AVISOS DE LA APP ══════════════════════════════════════════
      Antes cada aviso se apilaba sobre el anterior, con estilos distintos,
      y un mismo error podía salir dos veces. Ahora: uno por vez, con el
@@ -11331,7 +11771,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   window.v2TotalesHabituales = () => totales();
 
   function iniciar() {
-    armar(); cablear(); enganchar();
+    armar(); cablear(); enganchar(); montarCartera();
     history.replaceState({ v2: "home" }, "");
     if (MQ.matches) { document.body.dataset.v2 = "home"; refrescar(); }
     (MQ.addEventListener ? MQ.addEventListener("change", alCambiarAncho) : MQ.addListener(alCambiarAncho));
