@@ -6133,7 +6133,36 @@ renderCatKPIs();
   }
   const setYo = n => { localStorage.setItem(K_YO, n); return n; };
 
+  /* ── Préstamo de cartera ──────────────────────────────────────────
+     Cuando un vendedor cubre a otro (vacaciones, enfermedad), Pablo le
+     PRESTA la cartera hasta una fecha. Queda en la ficha del que cubre
+     (`cubre: [{ de, hasta }]`) y viaja con la publicación de vendedores.
+     Vencida la fecha deja de valer sola: no hay que acordarse de sacarla. */
+  const hoyISO = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  function prestar(de, a, hasta) {
+    if (!de || !a || de === a || !/^\d{4}-\d{2}-\d{2}$/.test(String(hasta || ""))) return { ok: false, razon: "datos incompletos" };
+    const v = leer();
+    const x = v.find(y => y.nombre === a);
+    if (!x) return { ok: false, razon: "no existe " + a };
+    x.cubre = (x.cubre || []).filter(p => p.de !== de);
+    x.cubre.push({ de, hasta, desde: hoyISO() });
+    guardar(v);
+    return { ok: true };
+  }
+  function terminarPrestamo(de, a) {
+    const v = leer();
+    const x = v.find(y => y.nombre === a);
+    if (!x || !x.cubre) return;
+    x.cubre = x.cubre.filter(p => p.de !== de);
+    guardar(v);
+  }
+  /* Préstamos vigentes que recibe `n` (hasta inclusive). */
+  const prestamosDe = n => ((leer().find(y => y.nombre === n) || {}).cubre || []).filter(p => p.hasta >= hoyISO());
+  /* Las carteras que puede atender `n`: la suya + las prestadas vigentes. */
+  const carterasDe = n => n ? [n].concat(prestamosDe(n).map(p => p.de)) : [];
+
   global.Vendedores = {
+    prestar, terminarPrestamo, prestamosDe, carterasDe,
     todos, activos, nombres, esCasa,
     agregar, desactivar, reactivar, renombrar,
     publicar, traer, meta, yo, setYo,
@@ -6282,10 +6311,49 @@ renderCatKPIs();
           <button class="qrv-b add" onclick="qrVendAgregar()">+ Agregar</button>
         </div>
       </div>
+      ${prestamoHTML()}
       <div class="qrv-nota">El vendedor <b>elige su nombre de una lista</b> en su app: si lo
         escribiera, un typo crearía un vendedor nuevo y la comisión se partiría en dos.
         Los que se van se <b>desactivan</b>, no se borran — su historial tiene que quedar.</div>`;
   }
+
+  /* ── Prestar cartera ───────────────────────────────────────────────
+     Cada vendedor ve SOLO sus clientes en la app. Si uno cubre a otro
+     unos días, se le presta la cartera hasta una fecha: vencida, deja de
+     verla sola. Se publica enseguida, como todo lo de esta pantalla. */
+  function prestamoHTML() {
+    if (!Vendedores.prestar) return "";
+    const act = Vendedores.activos().filter(v => !v.casa);
+    const hoy = new Date(); const en7 = new Date(hoy); en7.setDate(hoy.getDate() + 7);
+    const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const fecha = s => { const [y, m, d] = s.split("-"); return d + "/" + m; };
+    const vigentes = act.flatMap(v => Vendedores.prestamosDe(v.nombre).map(p => ({ a: v.nombre, de: p.de, hasta: p.hasta })));
+    const opts = sel => act.map(v => `<option ${v.nombre === sel ? "selected" : ""}>${esc(v.nombre)}</option>`).join("");
+    return `<div class="qrv-prest">
+      <h4>🤝 Prestar cartera</h4>
+      <p>Cada vendedor ve <b>solo sus clientes</b>. Si uno cubre a otro, prestale la cartera hasta una fecha: después deja de verla sola.</p>
+      <div class="qrv-prest-f">
+        <label>Cartera de<select id="qrPrDe">${opts(act[0] && act[0].nombre)}</select></label>
+        <label>La atiende<select id="qrPrA">${opts(act[1] && act[1].nombre)}</select></label>
+        <label>Hasta el<input id="qrPrHasta" type="date" min="${iso(hoy)}" value="${iso(en7)}"></label>
+        <button class="qrv-b add" onclick="qrPrestar()">Prestar</button>
+      </div>
+      ${vigentes.length ? `<ul class="qrv-prest-l">${vigentes.map(p => `<li><span><b>${esc(p.a)}</b> atiende la cartera de <b>${esc(p.de)}</b> hasta el ${fecha(p.hasta)}</span>
+        <button class="qrv-b" onclick="qrTerminarPrestamo('${esc(p.de)}','${esc(p.a)}')">Terminar ya</button></li>`).join("")}</ul>`
+        : `<div class="qrv-prest-n">No hay carteras prestadas.</div>`}
+    </div>`;
+  }
+  window.qrPrestar = function () {
+    const de = document.getElementById("qrPrDe").value, a = document.getElementById("qrPrA").value, hasta = document.getElementById("qrPrHasta").value;
+    if (de === a) return alert("Elegí dos vendedores distintos");
+    const r = Vendedores.prestar(de, a, hasta);
+    if (!r.ok) return alert("No se pudo: " + r.razon);
+    publicar(); pintar();
+  };
+  window.qrTerminarPrestamo = function (de, a) {
+    if (!confirm(a + " deja de ver la cartera de " + de + " ahora mismo. ¿Seguimos?")) return;
+    Vendedores.terminarPrestamo(de, a); publicar(); pintar();
+  };
 
   window.qrVendLock = function () {
     const b = document.getElementById("qrVendLock");
@@ -6356,6 +6424,14 @@ renderCatKPIs();
     .qrv-alta input{ flex:1; min-width:0; padding:9px 12px; border:2px solid #e2e8f0;
       border-radius:9px; font:inherit; font-size:13px }
     .qrv-nota{ font-size:11.5px; color:#64748b; margin-top:10px; line-height:1.5 }
+    .qrv-prest{ margin-top:14px; padding:13px 14px; border:1px solid #e2e8f0; border-radius:11px; background:#fff }
+    .qrv-prest h4{ margin:0 0 3px; font-size:14px } .qrv-prest p{ margin:0 0 10px; font-size:12.5px; color:#475569 }
+    .qrv-prest-f{ display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end }
+    .qrv-prest-f label{ display:flex; flex-direction:column; gap:3px; font-size:10.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#64748b }
+    .qrv-prest-f select, .qrv-prest-f input{ min-height:38px; padding:6px 9px; border:2px solid #e2e8f0; border-radius:8px; font:inherit; font-size:13px; text-transform:none; letter-spacing:0; color:#0f172a }
+    .qrv-prest-l{ list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:6px }
+    .qrv-prest-l li{ display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 10px; background:#f0fdf4; border-radius:8px; font-size:12.5px; color:#166534 }
+    .qrv-prest-n{ margin-top:8px; font-size:12px; color:#94a3b8 }
   `;
   document.head.appendChild(st);
 

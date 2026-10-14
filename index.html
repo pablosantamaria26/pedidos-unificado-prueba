@@ -7059,7 +7059,36 @@ body{ padding-bottom:22px; }
   }
   const setYo = n => { localStorage.setItem(K_YO, n); return n; };
 
+  /* ── Préstamo de cartera ──────────────────────────────────────────
+     Cuando un vendedor cubre a otro (vacaciones, enfermedad), Pablo le
+     PRESTA la cartera hasta una fecha. Queda en la ficha del que cubre
+     (`cubre: [{ de, hasta }]`) y viaja con la publicación de vendedores.
+     Vencida la fecha deja de valer sola: no hay que acordarse de sacarla. */
+  const hoyISO = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  function prestar(de, a, hasta) {
+    if (!de || !a || de === a || !/^\d{4}-\d{2}-\d{2}$/.test(String(hasta || ""))) return { ok: false, razon: "datos incompletos" };
+    const v = leer();
+    const x = v.find(y => y.nombre === a);
+    if (!x) return { ok: false, razon: "no existe " + a };
+    x.cubre = (x.cubre || []).filter(p => p.de !== de);
+    x.cubre.push({ de, hasta, desde: hoyISO() });
+    guardar(v);
+    return { ok: true };
+  }
+  function terminarPrestamo(de, a) {
+    const v = leer();
+    const x = v.find(y => y.nombre === a);
+    if (!x || !x.cubre) return;
+    x.cubre = x.cubre.filter(p => p.de !== de);
+    guardar(v);
+  }
+  /* Préstamos vigentes que recibe `n` (hasta inclusive). */
+  const prestamosDe = n => ((leer().find(y => y.nombre === n) || {}).cubre || []).filter(p => p.hasta >= hoyISO());
+  /* Las carteras que puede atender `n`: la suya + las prestadas vigentes. */
+  const carterasDe = n => n ? [n].concat(prestamosDe(n).map(p => p.de)) : [];
+
   global.Vendedores = {
+    prestar, terminarPrestamo, prestamosDe, carterasDe,
     todos, activos, nombres, esCasa,
     agregar, desactivar, reactivar, renombrar,
     publicar, traer, meta, yo, setYo,
@@ -9104,10 +9133,12 @@ renderGrid = function () {
 function qcMedir() {
   var g = document.getElementById("grid");
   if (!g || !g.clientWidth) return;
-  var w = g.clientWidth, cols = w >= 1050 ? 3 : w >= 600 ? 2 : 1;
+  /* Celular (como el modelo): 2 columnas de tarjetas verticales con foto arriba.
+     Tablet y PC ancha: las tarjetas horizontales de siempre. */
+  var w = g.clientWidth, cols = w >= 1050 ? 3 : 2;
   var col = (w - (cols - 1) * 10) / cols;
   if (g.dataset.cols !== String(cols)) g.dataset.cols = cols;
-  var forma = col < 340 ? "angosta" : "normal";
+  var forma = w < 600 ? "compacta" : col < 340 ? "angosta" : "normal";
   if (g.dataset.tarjeta !== forma) g.dataset.tarjeta = forma;
 }
 if (window.ResizeObserver) { (function () { var g = document.getElementById("grid"); if (g) new ResizeObserver(qcMedir).observe(g); })(); }
@@ -9830,6 +9861,131 @@ window.fetch = function (url, opts) {
 /* ▲▲▲ FIN BLOQUE PROTOTIPO ▲▲▲ */
 
 </script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   CADA VENDEDOR VE SOLO SU CARTERA (decisión de Pablo, 13/10/2026)
+
+   La app original filtraba por cartera pero dejaba «Ver todos los
+   clientes» a un toque, y si el nombre del vendedor no coincidía con
+   ninguno mostraba todos. Ahora:
+
+     · se ven y se eligen SOLO los clientes de su cartera, más las
+       carteras que Pablo le prestó por unos días (Vendedores.prestar);
+     · clientes SIN vendedor asignado: no los ve nadie hasta que se les
+       asigne;
+     · la casa (MERCADO LIMPIO, los pedidos que carga Laura) ve todos;
+     · escribir el número de un cliente de otra cartera no lo elige y no
+       muestra su nombre: «no está en tu cartera». Tampoco se puede
+       mandar un pedido a ese número;
+     · un número que no existe en la base sigue siendo «Cliente nuevo»
+       (eso queda como estaba).
+
+   Cómo: la lista completa se guarda aparte y `clientNames` (lo que usa
+   toda la app) se deja solo con lo visible. Así cada buscador, estrella
+   y contador de la app original respeta la regla sin tocarlos uno por uno.
+
+   OJO: es un filtro de la APP. El teléfono igual baja todos los clientes
+   de Supabase; la restricción de verdad (cada teléfono baja solo lo suyo)
+   va del lado del servidor, con la seguridad de Supabase pendiente.
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  let completo = null, ultimoObj = null, firma = "";
+  const ajenos = new Set();
+
+  const yo = () => {
+    const el = document.getElementById("nombreVendedor");
+    return String((el && el.value) || localStorage.getItem("nombreVendedor") || "").trim().toUpperCase();
+  };
+  const coincide = (a, b) => {
+    if (typeof vendedorMatch === "function") { try { return vendedorMatch(a, b); } catch (e) {} }
+    const n = s => String(s || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+    return n(a) === n(b);
+  };
+  function carteras() {
+    const v = yo();
+    if (!v) return [];
+    if (window.Vendedores && Vendedores.carterasDe) {
+      /* El nombre elegido puede venir sin tilde: se busca el registro que coincide. */
+      const reg = (Vendedores.todos() || []).find(x => coincide(x.nombre, v));
+      return Vendedores.carterasDe(reg ? reg.nombre : v);
+    }
+    return [v];
+  }
+  function esCasa() {
+    const v = yo();
+    if (!v || !window.Vendedores) return false;
+    const reg = (Vendedores.todos() || []).find(x => coincide(x.nombre, v));
+    return !!(reg && reg.casa);
+  }
+  /* ¿Este cliente es de las carteras que atiende el vendedor de este teléfono? */
+  function visible(c) {
+    if (!c) return false;
+    if (esCasa()) return true;
+    if (!c.vendedor) return false;                 // sin vendedor asignado: nadie
+    return carteras().some(n => coincide(c.vendedor, n));
+  }
+  window.carteraVisible = visible;
+  window.clienteAjeno = id => ajenos.has(String(id || "").trim());
+
+  /* Deja `clientNames` solo con lo visible. Se llama cada vez que la app
+     carga clientes (caché o Supabase) y cuando cambia el vendedor o un
+     préstamo. */
+  function aplicar() {
+    if (typeof clientNames === "undefined") return;
+    if (clientNames !== ultimoObj) completo = Object.assign({}, clientNames);   // llegó una lista nueva
+    if (!completo) return;
+    ajenos.clear();
+    const filtrado = {};
+    for (const id of Object.keys(completo)) {
+      if (visible(completo[id])) filtrado[id] = completo[id];
+      else ajenos.add(String(id));
+    }
+    /* En el lugar: hay código que guarda la referencia al objeto. */
+    for (const id of Object.keys(clientNames)) if (!(id in filtrado)) delete clientNames[id];
+    for (const id of Object.keys(filtrado)) clientNames[id] = filtrado[id];
+    ultimoObj = clientNames;
+    firma = estado();
+  }
+  const estado = () => yo() + "|" + JSON.stringify(carteras()) + "|" + esCasa();
+  window.carteraAplicar = aplicar;
+  /* Para las pruebas: cuántos hay, cuántos se ven y de qué vendedor son. */
+  window.carteraInfo = () => {
+    const porVend = {};
+    Object.values(completo || {}).forEach(c => { const v = c.vendedor || "(sin vendedor)"; porVend[v] = (porVend[v] || 0) + 1; });
+    const unoDe = v => Object.keys(completo || {}).find(id => (completo[id].vendedor || "") === v);
+    return { total: Object.keys(completo || {}).length, visibles: Object.keys(clientNames).length, ajenos: ajenos.size, porVend, unoDe: Object.fromEntries(Object.keys(porVend).map(v => [v, unoDe(v === "(sin vendedor)" ? "" : v)])) };
+  };
+
+  /* Cada carga de clientes termina en updateClientBadge(): se filtra ahí. */
+  if (typeof window.updateClientBadge === "function") {
+    const o = window.updateClientBadge;
+    window.updateClientBadge = function () { aplicar(); return o.apply(this, arguments); };
+  }
+  /* «Mi cartera» de la app original, con la regla nueva (incluye préstamos). */
+  window.esDeMiCartera = visible;
+  /* Cambió el vendedor o llegó un préstamo: se vuelve a filtrar. */
+  setInterval(() => { if (completo && estado() !== firma) { aplicar(); if (typeof updateClientBadge === "function") try { updateClientBadge(); } catch (e) {} } }, 1500);
+
+  /* Un pedido NO puede salir a un cliente de otra cartera, entre por donde entre. */
+  function frenar(e) {
+    const id = (document.getElementById("modalClientId") || {}).value || (document.getElementById("numeroCliente") || {}).value;
+    if (!clienteAjeno(id)) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    const ov = document.getElementById("preConfirmOverlay"); if (ov) ov.style.display = "none";
+    if (window.showToast) showToast("El cliente N° " + String(id).trim() + " no está en tu cartera. Elegí uno de tus clientes.", "error");
+  }
+  document.addEventListener("click", e => { if (e.target.closest && e.target.closest("#btnConfirmYes")) frenar(e); }, true);
+
+  /* El botón «Ver todos los clientes» de la app original ya no corresponde. */
+  const st = document.createElement("style");
+  st.textContent = ".ac-toggle{ display:none !important; }";
+  document.head.appendChild(st);
+
+  if (typeof clientNames !== "undefined" && Object.keys(clientNames).length) aplicar();
+})();
+
+</script>
 <style>
 /* ═══ UI v2 ═══ */
 /* ═══════════════════════════════════════════════════════════════════
@@ -10330,6 +10486,146 @@ body.ui2 #predicciones button[onclick^="precargarCliente"]{ background:linear-gr
 body.ui2 #predicciones [style*="Roboto Mono"], body.ui2 #predicciones [style*="monospace"]{ font-family:inherit !important; font-size:13px !important; color:#475569 !important; }
 @media (max-width:360px){ body.ui2 .v2-lin-x{ width:34px; height:34px; border-radius:10px; } body.ui2 .v2-lin{ gap:6px; } }
 
+/* Cliente de otra cartera escrito por número */
+body.ui2 .v2c-ajeno{ margin:6px 0; padding:12px 14px; border-radius:14px; background:#fef2f2; color:#991b1b; font-size:14.5px; font-weight:800; line-height:1.35 }
+body.ui2 .v2c-ajeno small{ display:block; margin-top:3px; font-size:12.5px; font-weight:600; color:#7f1d1d }
+
+/* ═══ Sugerencias de este cliente (lista vertical, como el modelo) ═══ */
+body.ui2 .v2-sug{ background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:6px 10px 4px; }
+body.ui2 .v2-sug-h{ display:flex; align-items:center; gap:4px; padding:4px 2px 6px; }
+body.ui2 .v2-sug-h b{ flex:1; min-width:0; font-size:14.5px; font-weight:800; color:#0f172a; }
+body.ui2 .v2-sug-h button{ border:0; background:none; font:inherit; font-size:13px; font-weight:800; color:#0e6b3e; padding:8px 6px; min-height:40px; cursor:pointer; }
+body.ui2[data-v2="queruclor"] .v2-sug-h button{ color:#b5006f; }
+body.ui2 .v2-sug-row{ display:flex; align-items:center; gap:12px; padding:8px 2px; border-top:1px solid #f1f5f9; }
+body.ui2 .v2-sug-row img, body.ui2 .v2-sug-sinfoto{ flex:none; width:56px; height:56px; border-radius:12px; object-fit:contain; background:#f8fafc; border:1px solid #eef2f6; }
+body.ui2 .v2-sug-row .t{ flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+body.ui2 .v2-sug-row .t b{ font-size:14.5px; font-weight:800; color:#0f172a; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+body.ui2 .v2-sug-row .t small{ font-size:12.5px; color:#475569; font-weight:600; }
+body.ui2 .v2-sug-row .t .pr{ font-size:15px; font-weight:900; color:#0f172a; font-variant-numeric:tabular-nums; }
+body.ui2 .v2-sug-add{ flex:none; min-width:58px; height:48px; padding:0 12px; border:0; border-radius:24px; background:linear-gradient(135deg,#0e6b3e,#12854c); color:#fff;
+  font:inherit; font-size:16px; font-weight:900; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:2px; box-shadow:0 3px 10px rgba(14,107,62,.25); }
+body.ui2 .v2-sug-add span{ font-size:20px; line-height:1; }
+body.ui2[data-v2="queruclor"] .v2-sug-add{ background:linear-gradient(135deg,#a3006a,#d6007c); box-shadow:0 3px 10px rgba(181,0,111,.25); }
+body.ui2 .v2-sug-add:active{ transform:scale(.95); }
+body.ui2 .v2-sug-mostrar{ width:100%; min-height:46px; border:1.5px dashed #cbd5e1; border-radius:14px; background:#fff; color:#334155; font:inherit; font-size:14px; font-weight:700; cursor:pointer; }
+
+/* ═══ INICIO como el modelo (oct-2026) ════════════════════════════ */
+@media (max-width:899px){
+  body.ui2 .v2-home{ gap:12px; padding:14px 14px calc(88px + var(--v2-safe)); }
+  body.ui2 .v2-brand .v2-red{ font-size:12px; color:#64748b; }
+  body.ui2 .v2-brand .v2-red em{ font-style:normal; }
+  body.ui2 .v2-brand .v2-red.on{ color:#15803d; }
+  body.ui2 .v2-hola{ padding:14px 16px; }
+  body.ui2 .v2-hola b{ font-size:21px; font-weight:800; }
+  body.ui2 .v2-hola small{ font-size:13.5px; line-height:1.4; color:#475569; }
+  body.ui2 .v2-encurso{ width:100%; display:flex; align-items:center; gap:12px; padding:12px 14px; border:2px solid #12854c; border-radius:16px; background:#e7f4ec;
+    font:inherit; color:#0f172a; text-align:left; cursor:pointer; }
+  body.ui2 .v2-encurso[hidden]{ display:none; }
+  body.ui2 .v2-ec-ic{ flex:none; width:42px; height:42px; border-radius:12px; background:#0e6b3e; color:#fff; display:grid; place-items:center; }
+  body.ui2 .v2-ec-ic svg{ width:22px; height:22px; }
+  body.ui2 .v2-encurso div{ flex:1; min-width:0; }
+  body.ui2 .v2-encurso b{ display:block; font-size:15.5px; font-weight:800; }
+  body.ui2 .v2-encurso small{ display:block; font-size:12.5px; color:#334155; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  body.ui2 .v2-ec-go{ flex:none; font-size:14px; font-weight:800; color:#0e6b3e; }
+  body.ui2 .v2-dos{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  body.ui2 .v2-big{ min-height:208px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px; padding:16px 12px 14px;
+    border:0; border-radius:20px; color:#fff; font:inherit; text-align:center; cursor:pointer; box-shadow:0 8px 22px rgba(15,23,42,.14); }
+  body.ui2 .v2-big:active{ transform:scale(.985); }
+  body.ui2 .v2-big.ml{ background:linear-gradient(160deg,#12854c,#0e6b3e); }
+  body.ui2 .v2-big.qr{ background:linear-gradient(160deg,#e2007f,#a3006a); }
+  body.ui2 .v2-big .ilu{ width:70px; height:70px; display:grid; place-items:center; margin-bottom:2px; }
+  body.ui2 .v2-big .ilu svg{ width:66px; height:66px; }
+  body.ui2 .v2-big b{ font-size:19px; font-weight:800; line-height:1.15; letter-spacing:-.01em; }
+  body.ui2 .v2-big small{ font-size:12.5px; line-height:1.35; opacity:.92; }
+  body.ui2 .v2-mini2{ position:relative; display:flex; align-items:center; gap:10px; min-height:70px; padding:10px 12px; border:1px solid #e2e8f0; border-radius:16px;
+    background:#fff; font:inherit; color:#0f172a; text-align:left; cursor:pointer; }
+  body.ui2 .v2-mini2 .ic{ flex:none; width:36px; height:36px; display:grid; place-items:center; }
+  body.ui2 .v2-mini2 .ic svg{ width:32px; height:32px; }
+  body.ui2 .v2-mini2 .ic.az{ color:#2563eb; }
+  body.ui2 .v2-mini2 div{ min-width:0; }
+  body.ui2 .v2-mini2 b{ display:block; font-size:15px; font-weight:800; }
+  body.ui2 .v2-mini2 small{ display:block; font-size:12px; color:#475569; line-height:1.25; }
+  body.ui2 .v2-mini2 .v2-pend{ position:absolute; top:8px; right:8px; }
+  /* Muy angosto: las dos tarjetas grandes se apilan (el plan: lado a lado solo si se leen bien). */
+  @media (max-width:339px){ body.ui2 .v2-dos:not(.chico){ grid-template-columns:1fr; } body.ui2 .v2-big{ min-height:150px; } }
+}
+@media (max-width:899px){
+  body.ui2 .v2-hola small b{ font-size:inherit; font-weight:800; color:#0f172a; }
+  body.ui2 .v2-brand .v2-red{ white-space:nowrap; }
+}
+@media (max-width:359px){ body.ui2 .v2-brand .v2-red em{ display:none; } body.ui2 .v2-brand small{ letter-spacing:.06em; } }
+
+/* ═══ Selector de cliente como el modelo ══════════════════════════ */
+body.ui2 .v2-sh-h{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+body.ui2 .v2-sh-h h3{ margin:0; font-size:21px; font-weight:800; }
+body.ui2 .v2-sh-x{ flex:none; width:44px; height:44px; border:0; border-radius:50%; background:#f1f5f9; color:#334155; font-size:18px; font-weight:800; cursor:pointer; }
+body.ui2 .v2c-pct{ flex:none; min-width:54px; padding:8px 10px; border-radius:10px; background:#15803d; color:#fff; font-size:15px; font-weight:900; text-align:center; font-variant-numeric:tabular-nums; }
+body.ui2 .v2c-pct.cero{ background:#e2e8f0; color:#475569; }
+body.ui2 .v2c-chev{ flex:none; font-size:26px; color:#94a3b8; line-height:1; padding-left:2px; }
+body.ui2 .v2c-id .mio{ margin:0 5px 0 0 !important; }
+body.ui2 .ac-item.v2c.sel{ background:#f0fdf4 !important; border-color:#22c55e !important; box-shadow:0 0 0 1px #22c55e; }
+body.ui2 .ac-item.v2c.sel .v2c-ok{ width:32px; height:32px; font-size:16px; }
+
+/* ═══ Cargar como el modelo: Escribir | Catálogo ═════════════════ */
+@media (max-width:899px){
+  body.ui2 .carga-modos{ background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:4px; }
+  body.ui2 .carga-modo-btn{ min-height:46px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:15px; font-weight:800; color:#475569; }
+  body.ui2 .carga-modo-btn .cico{ width:19px; height:19px; flex:none; }
+  body.ui2 .carga-modo-btn.active{ background:linear-gradient(135deg,#0e6b3e,#12854c); color:#fff; box-shadow:0 2px 8px rgba(14,107,62,.28); }
+  /* El buscador es del catálogo: en «Escribir» no se muestra. */
+  body.ui2[data-v2="cargar"]:not(.v2-modo-foto) .v2-search{ display:none !important; }
+  body.ui2[data-v2="cargar"]:not(.v2-modo-foto) .carga-modos{ margin-top:2px; }
+  body.ui2 #vistaEscribir .hero-block{ margin-bottom:12px; }
+  body.ui2 #vistaEscribir #v2Quick{ margin-bottom:12px; display:flex; flex-direction:column; gap:10px; }
+}
+
+/* ═══ Catálogo de Mercado Limpio en grilla (como el modelo) ══════ */
+@media (max-width:899px){
+  body.ui2 #cvGrid.v2-grilla{ display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  @media (min-width:600px){ body.ui2 #cvGrid.v2-grilla{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  body.ui2 .v2-card{ display:flex !important; flex-direction:column; align-items:stretch; gap:6px; padding:8px; min-height:0; border-radius:16px; }
+  body.ui2 .v2-card.en-pedido{ border-color:#86efac; box-shadow:0 0 0 1px #86efac; }
+  body.ui2 .v2-card-img{ aspect-ratio:1/1; border-radius:12px; background:#f8fafc; overflow:hidden; display:block; cursor:zoom-in; }
+  body.ui2 .v2-card-img img{ width:100%; height:100%; object-fit:contain; display:block; }
+  body.ui2 .v2-card-nom{ font-size:14px; font-weight:800; color:#0f172a; line-height:1.2; min-height:34px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; cursor:pointer; }
+  body.ui2 .v2-card-pie{ display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  body.ui2 .v2-card-pr{ font-size:16px; font-weight:900; color:#0f172a; font-variant-numeric:tabular-nums; min-width:0; }
+  body.ui2 .v2-card-pr small{ font-size:11.5px; font-weight:700; color:#64748b; }
+  body.ui2 .v2-card-pr .sin{ font-size:12px; font-weight:700; color:#b45309; }
+  body.ui2 .v2-card-mas{ flex:none; width:44px; height:44px; border:0; border-radius:50%; background:linear-gradient(135deg,#0e6b3e,#12854c); color:#fff;
+    font-size:26px; font-weight:700; line-height:1; cursor:pointer; box-shadow:0 3px 10px rgba(14,107,62,.25); }
+  body.ui2 .v2-card-mas:active{ transform:scale(.93); }
+  body.ui2 .v2-card-step{ display:grid !important; grid-template-columns:44px 1fr 44px; align-items:center; gap:4px; }
+  body.ui2 .v2-card-step .n{ text-align:center; font-size:18px; font-weight:900; }
+  body.ui2 .v2-card .v2-tog{ display:flex; margin-top:0; }
+  body.ui2 .v2-card .v2-tog button{ flex:1; min-height:36px; padding:4px 6px; font-size:11.5px; }
+  body.ui2 .v2-card .v2-aviso{ font-size:11.5px; }
+  body.ui2 .v2-vista{ margin-left:8px; min-height:38px; padding:0 12px; border:1.5px solid #e2e8f0; border-radius:12px; background:#fff; color:#334155; font:inherit; font-size:13px; font-weight:800; cursor:pointer; white-space:nowrap; }
+}
+
+/* ═══ Más opciones (lista) y barra de abajo en Historial ═════════ */
+body.ui2 .v2-maslist{ display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+body.ui2 .v2-maslist button{ display:flex; align-items:center; gap:12px; min-height:66px; padding:10px 12px; border:1px solid #e2e8f0; border-radius:16px; background:#fff;
+  font:inherit; color:#0f172a; text-align:left; cursor:pointer; }
+body.ui2 .v2-maslist .ic{ flex:none; width:42px; height:42px; border-radius:12px; display:grid; place-items:center; font-size:20px; font-weight:900; }
+body.ui2 .v2-maslist .ic svg{ width:22px; height:22px; }
+body.ui2 .v2-maslist .ic.az{ background:#dbeafe; color:#2563eb; } body.ui2 .v2-maslist .ic.vi{ background:#ede9fe; color:#7c3aed; }
+body.ui2 .v2-maslist .ic.am{ background:#fef3c7; } body.ui2 .v2-maslist .ic.na{ background:#ffedd5; } body.ui2 .v2-maslist .ic.gr{ background:#e0e7ff; color:#4338ca; }
+body.ui2 .v2-maslist div{ flex:1; min-width:0; } body.ui2 .v2-maslist b{ display:block; font-size:15.5px; font-weight:800; }
+body.ui2 .v2-maslist small{ display:block; font-size:12.5px; color:#475569; } body.ui2 .v2-maslist i{ font-style:normal; font-size:24px; color:#94a3b8; }
+@media (max-width:899px){
+  body.ui2[data-v2="historial"] .v2-nav{ display:flex; }
+  body.ui2[data-v2="historial"] .v2-hist{ padding-bottom:calc(84px + var(--v2-safe)); }
+}
+
+/* ═══ Resumen: total parcial y vaciar · Historial: detalle ══════════ */
+body.ui2 .v2-tot .v2-falta{ color:#92400e !important; background:#fef3c7; border-radius:10px; padding:8px 10px !important; margin:0 0 10px; font-size:12.5px !important; font-weight:600; }
+body.ui2 .v2-res-vaciar{ display:inline-flex; align-items:center; gap:6px; min-height:42px; margin:0 0 10px; padding:0 12px; border:1.5px solid #fecaca; border-radius:12px;
+  background:#fef2f2; color:#b91c1c; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
+body.ui2 .v2-hcard{ flex-wrap:wrap; cursor:pointer; }
+body.ui2 .v2-hver{ flex-basis:100%; font-size:12.5px; font-weight:700; color:#0e6b3e; padding-top:2px; }
+body.ui2 .v2-hdet{ flex-basis:100%; margin:6px 0 0; padding:8px 10px 8px 26px; background:#f8fafc; border-radius:10px; font-size:13px; color:#334155; line-height:1.5; }
+
 /* ═══════════════════════════════════════════════════════════════════
    QUERUCLOR — TARJETAS (ver qr-tarjetas.js)
 
@@ -10546,6 +10842,39 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
 
 #qrApp .qc-tope,#qcDet .qc-tope{ font-size:12.5px; font-weight:700; color:#92400e; text-align:center; }
 
+/* ── Celular: 2 columnas, tarjeta vertical con foto arriba (como el modelo) ──
+   Se conserva todo lo que vende: cartel de oferta, precio c/u y por caja,
+   aviso de promo, stock, contador de cajas y sueltas. */
+#qrApp #grid[data-tarjeta="compacta"]{ gap:10px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc{ grid-template-columns:minmax(0,1fr); grid-template-areas:"img" "of" "nom" "det" "acc" "fa" "su";
+  padding:8px; row-gap:6px; border-radius:16px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-img{ width:100%; height:auto; aspect-ratio:1/1; padding:6px; border-radius:12px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-of{ margin:0; gap:4px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-badge{ font-size:11px; padding:3px 8px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-cond{ font-size:11px; padding:3px 8px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-nom{ font-size:14px; line-height:1.2; min-height:34px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-meta{ font-size:11.5px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-precio{ margin-top:2px; gap:0 6px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-pu{ font-size:18px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-pu small{ font-size:11px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-caja{ width:100%; font-size:12px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-antes{ font-size:12px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-prox{ font-size:11.5px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-ok{ font-size:11px; margin-top:4px; white-space:normal; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-stk{ font-size:11px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-agregar{ min-height:46px; font-size:14px; border-radius:23px; letter-spacing:.02em; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-step{ grid-template-columns:40px minmax(0,1fr) 40px; min-height:46px; border-radius:23px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-step button{ height:40px; border-radius:20px; font-size:24px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-n{ font-size:11px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-n b{ font-size:17px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-fam{ min-height:46px; grid-template-columns:minmax(0,1fr) auto; padding:4px 10px; border-radius:14px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-fam-d{ display:none; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-fam-n{ font-size:14px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-falta, #qrApp #grid[data-tarjeta="compacta"] .qc-activa{ font-size:11.5px; padding:6px 8px; gap:6px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-sueltas{ flex-direction:column; align-items:stretch; gap:6px; padding-top:8px; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-sueltas .qc-step{ width:auto; }
+#qrApp #grid[data-tarjeta="compacta"] .qc-tope{ font-size:11px; }
+
 </style>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
@@ -10594,6 +10923,10 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     hist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     mas: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>',
     lupa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+    escoba: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M50 6 31 34"/><path d="M27 31l10 7"/><path d="M26 32c-6 2-11 8-14 16l-3 8c9 0 17-1 23-6l4-8"/><path d="M14 53l5-8M19 55l5-9M25 54l4-8"/></svg>',
+    botellas: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 10h10v6l4 6v32a3 3 0 0 1-3 3H16a3 3 0 0 1-3-3V22l4-6z"/><path d="M13 32h18"/><path d="M41 18h8l1 6h3v30a3 3 0 0 1-3 3H40a3 3 0 0 1-3-3V24h3z"/><path d="M44 12h6l2 6"/><path d="M37 36h16"/></svg>',
+    estrella: '<svg viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1.2" stroke-linejoin="round"><path d="M12 2.8l2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3L2.9 9.5l6.3-.9z"/></svg>',
+    lista: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     carro: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L21 7H6"/></svg>',
   };
 
@@ -10677,12 +11010,18 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const raiz = document.createElement("div");
     raiz.innerHTML = `
       <section class="v2-home" id="v2Home">
-        <div class="v2-brand"><span class="v2-logo">${I.logo}</span><div><b>Mercado Limpio</b><small>PEDIDOS · DISTRIBUIDORA</small></div>
-          <span class="v2-red" id="v2Red"><i></i>Red</span></div>
-        <button class="v2-hola" id="v2Hola" type="button"><div><b id="v2HolaNom">Hola</b><small id="v2HolaSub"></small></div><span class="v2-mas">›</span></button>
-        <button class="v2-tile ml" id="v2GoCargar" type="button"><span class="v2-ico">${I.cargar}</span><div><b>Cargar</b><small>Pedido general · Mercado Limpio</small></div><span class="v2-flecha">›</span></button>
-        <button class="v2-tile qr" id="v2GoQr" type="button"><span class="v2-ico">${I.qr}</span><div><b>Queruclor</b><small>Limpieza y perfumería</small></div><span class="v2-flecha">›</span></button>
-        <button class="v2-tile plano" id="v2GoCola" type="button"><span class="v2-ico">${I.cola}</span><div><b>Pedidos activos</b><small id="v2ColaSub">Sin pedidos en cola</small></div><span class="v2-pend" id="v2ColaN"></span></button>
+        <div class="v2-brand"><span class="v2-logo">${I.logo}</span><div><b>Mercado Limpio</b><small>DISTRIBUIDORA MAYORISTA</small></div>
+          <span class="v2-red" id="v2Red"><i></i><em id="v2RedTx">En línea</em></span></div>
+        <button class="v2-hola" id="v2Hola" type="button"><div><b id="v2HolaNom">¡Hola!</b><small id="v2HolaSub"></small></div><span class="v2-mas">›</span></button>
+        <button class="v2-encurso" id="v2EnCurso" type="button" hidden><span class="v2-ec-ic">${I.carro}</span><div><b>Pedido en curso</b><small id="v2EnCursoSub"></small></div><span class="v2-ec-go">Seguir ›</span></button>
+        <div class="v2-dos">
+          <button class="v2-big ml" id="v2GoCargar" type="button"><span class="ilu">${I.escoba}</span><b>Artículos de Limpieza habituales</b><small>Trapos, escobillones, esponjas, repasadores, rejillas y más</small></button>
+          <button class="v2-big qr" id="v2GoQr" type="button"><span class="ilu">${I.botellas}</span><b>Productos Queruclor</b><small>Lavandinas, limpiapisos, detergentes, suavizantes y más</small></button>
+        </div>
+        <div class="v2-dos chico">
+          <button class="v2-mini2" id="v2GoOfertas" type="button"><span class="ic">${I.estrella}</span><div><b>Ofertas</b><small id="v2OfSub">Promociones especiales</small></div></button>
+          <button class="v2-mini2" id="v2GoCola" type="button"><span class="ic az">${I.lista}</span><div><b>Pedidos activos</b><small id="v2ColaSub">Sin pedidos en cola</small></div><span class="v2-pend" id="v2ColaN"></span></button>
+        </div>
       </section>
 
       <nav class="v2-nav" id="v2Nav">
@@ -10709,7 +11048,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       <section class="v2-hist" id="v2Hist"><div id="v2HistLista"></div></section>
 
       <section class="v2-res" id="v2Res">
-        <div class="v2-rhead"><button class="v2-back" id="v2ResBack" type="button" aria-label="Volver">‹</button><h2>Resumen del pedido</h2></div>
+        <div class="v2-rhead"><button class="v2-back" id="v2ResBack" type="button" aria-label="Volver">‹</button><h2>Pedido en curso</h2></div>
         <div class="v2-rbody" id="v2ResBody">
           <div class="v2-rcli" id="v2ResCli"></div>
           <div class="v2-lineas" id="v2Lineas"></div>
@@ -10720,16 +11059,18 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       </section>
 
       <div class="v2-sheet-bg" id="v2CliBg"><div class="v2-sheet" role="dialog" aria-label="Elegir cliente">
-        <div class="asa"></div><h3>Elegí el cliente</h3><p class="sub">Escribí el número, el nombre o la dirección.</p><div id="v2CliSlot"></div>
+        <div class="asa"></div><div class="v2-sh-h"><h3>Elegí el cliente</h3><button type="button" class="v2-sh-x" id="v2CliCerrar" aria-label="Cerrar">✕</button></div><p class="sub">Tus clientes: buscá por número, nombre o dirección.</p><div id="v2CliSlot"></div>
       </div></div>
 
       <div class="v2-sheet-bg" id="v2MasBg"><div class="v2-sheet" role="dialog" aria-label="Más">
-        <div class="asa"></div><h3>Más</h3><p class="sub"></p>
-        <button class="v2-tile plano" data-m="ideas" type="button"><span class="v2-ico">${I.mas}</span><div><b>Ideas</b><small>Sugerencias según tu cartera</small></div></button>
-        <div style="height:8px"></div>
-        <button class="v2-tile plano" data-m="stats" type="button"><span class="v2-ico">${I.hist}</span><div><b>Estadísticas</b><small>Tus números</small></div></button>
-        <div style="height:8px"></div>
-        <button class="v2-tile plano" data-m="ayuda" type="button"><span class="v2-ico">?</span><div><b>Ayuda</b><small>Cómo funciona la app</small></div></button>
+        <div class="asa"></div><div class="v2-sh-h"><h3>Más opciones</h3><button type="button" class="v2-sh-x" data-m="cerrar" aria-label="Cerrar">✕</button></div>
+        <div class="v2-maslist">
+          <button type="button" data-m="historial"><span class="ic az">${I.cola}</span><div><b>Pedidos activos e historial</b><small>Lo que falta mandar y lo que ya salió</small></div><i>›</i></button>
+          <button type="button" data-m="clientes"><span class="ic vi">${I.cli}</span><div><b>Clientes</b><small>Ver y buscar tus clientes</small></div><i>›</i></button>
+          <button type="button" data-m="ideas"><span class="ic am">💡</span><div><b>Ideas</b><small>Clientes que hace días no compran</small></div><i>›</i></button>
+          <button type="button" data-m="stats"><span class="ic na">📊</span><div><b>Estadísticas</b><small>Tus pedidos y tus números</small></div><i>›</i></button>
+          <button type="button" data-m="ayuda"><span class="ic gr">?</span><div><b>Ayuda</b><small>Cómo se usa la app</small></div><i>›</i></button>
+        </div>
       </div></div>`;
     while (raiz.firstChild) document.body.appendChild(raiz.firstChild);
     /* La cabecera va PRIMERA en el body: si no, el sticky queda al final de la página. */
@@ -10745,10 +11086,17 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const modos = nuevo.querySelector(".carga-modos");
     buscador.after(modos);
     modos.after(quick);
+    /* Celular, como el modelo: en «Escribir» primero el cuadro de texto y
+       debajo las sugerencias del cliente; el buscador queda para Catálogo. */
+    if (MQ.matches) {
+      const ve = $("vistaEscribir"), hero = ve && ve.querySelector(".hero-block");
+      if (ve && hero) { ve.insertBefore(hero, ve.firstChild); hero.after(quick); }
+      seguro(() => { $("productos").placeholder = "Escribí la cantidad y el producto, uno por renglón\nEj: 12 trapos de piso"; });
+    }
 
     /* Escribir / Foto: textos cortos */
-    $("modoEscribir").innerHTML = '<span class="cico">✍</span>Escribir';
-    $("modoFotos").innerHTML = '<span class="cico">🖼</span>Foto';
+    $("modoEscribir").innerHTML = '<svg class="cico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Escribir';
+    $("modoFotos").innerHTML = '<svg class="cico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Catálogo';
 
     /* Marca como filtro secundario, arriba de las categorías */
     const fila = document.createElement("div"); fila.className = "v2-marcafila"; fila.id = "v2MarcaFila";
@@ -10791,7 +11139,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     else if (p === "cola") seguro(() => switchTab("pendientes"));
     else if (p === "ideas") seguro(() => switchTab("pred"));
     else if (p === "stats") seguro(() => switchTab("stats"));
-    else if (p === "resumen") { S.resHash = null; pintarResumen(); }
+    else if (p === "resumen") { S.resHash = null; pintarResumen(); seguro(() => Promise.resolve(cvInit()).then(() => { if (S.p === "resumen") { S.resHash = null; pintarResumen(); } })); }   // el catálogo da los precios: se baja si todavía no estaba
     else if (p === "historial") pintarHistorial();
     refrescar();
     if (p !== "resumen") window.scrollTo(0, 0);
@@ -10935,6 +11283,38 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     }
     if (delta > 0) sumarTexto(txt, delta);
   }
+  /* ═══ SUGERENCIAS DEL CLIENTE (lo que suele llevar) ══════════════
+     Lista vertical como el modelo: foto, nombre, precio y un botón «+N»
+     con la cantidad que ESTE cliente pide siempre. Lo que ya se cargó
+     DESAPARECE de la lista (se corrige en el resumen): quedan a la vista
+     solo los que faltan. Se muestran 3; «Ver todas» abre el resto.
+     Si al vendedor no le sirve, la oculta y queda oculta en ESTE celular
+     hasta que toque «Ver sugerencias» (un toque, siempre a mano). */
+  const K_SUG_OCULTO = "v2_sugerencias_ocultas";
+  const sugOculto = () => { try { return localStorage.getItem(K_SUG_OCULTO) === "1"; } catch (e) { return false; } };
+  function sugBloque(items, prefijo) {
+    if (!items.length) return "";
+    if (sugOculto()) return '<button type="button" class="v2-sug-mostrar" data-sug-mostrar="1">💡 Ver sugerencias de este cliente (' + items.length + ')</button>';
+    const todas = S.sugTodas, ver = todas ? items : items.slice(0, 3);
+    return '<div class="v2-sug"><div class="v2-sug-h"><b>Sugerencias de este cliente</b>' +
+      (items.length > 3 ? '<button type="button" data-sug-todas="1">' + (todas ? "Ver menos" : "Ver todas (" + items.length + ")") + '</button>' : "") +
+      '<button type="button" data-sug-ocultar="1">Ocultar</button></div>' +
+      ver.map(x => '<div class="v2-sug-row">' +
+        (x.img ? '<img src="' + esc(x.img) + '" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'v2-sug-sinfoto\'}))">' : '<span class="v2-sug-sinfoto"></span>') +
+        '<div class="t"><b>' + esc(x.nombre) + '</b>' + (x.sub ? '<small>' + esc(x.sub) + '</small>' : "") + (x.precio ? '<span class="pr">' + x.precio + '</span>' : "") + '</div>' +
+        '<button type="button" class="v2-sug-add" ' + prefijo + '-set="' + esc(x.key) + '" ' + prefijo + '-qty="' + x.qty + '" aria-label="Agregar ' + x.qty + '"><span>+</span>' + x.qty + '</button></div>').join("") +
+      '</div>';
+  }
+  /* Ocultar / mostrar / ver todas: mismo manejo para Mercado Limpio y Queruclor. */
+  document.addEventListener("click", e => {
+    const t = e.target.closest && e.target.closest("[data-sug-ocultar],[data-sug-mostrar],[data-sug-todas]");
+    if (!t) return;
+    if (t.dataset.sugOcultar) { try { localStorage.setItem(K_SUG_OCULTO, "1"); } catch (er) {} toast("Sugerencias ocultas. Las ves de nuevo con «Ver sugerencias»."); }
+    else if (t.dataset.sugMostrar) { try { localStorage.removeItem(K_SUG_OCULTO); } catch (er) {} }
+    else S.sugTodas = !S.sugTodas;
+    renderQuick(); renderQuickQR();
+  });
+
   function renderQuick() {
     const box = $("v2Quick"); if (!box) return;
     const id = clienteId(), h = id ? historialDe(id) : [];
@@ -10946,26 +11326,24 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       html += `<div class="v2-prev"><div class="t"><b>↻ Pedido anterior</b><small>${esc(f)} · ${n} producto${n === 1 ? "" : "s"}</small></div><button type="button" data-rep="1">REPETIR</button></div>`;
       box._ultimo = u.productos;
     }
-    /* Lo que suele llevar: lo que más se repite en SU historial. Sin historial no se inventa nada. */
+    /* Lo que suele llevar: lo que más se repite en SU historial. Sin historial no se inventa nada.
+       Lo que ya está cargado no se muestra. */
     const cuenta = {};
     h.forEach(x => String(x.productos || "").split("\n").forEach(l => { const k = sinCant(l); if (k.length >= 3) cuenta[k] = (cuenta[k] || 0) + 1; }));
-    const top = Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a]).slice(0, 6);
+    const top = Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a]).slice(0, 8);
     if (top.length) {
       const m = mapa(), hab = habituales(h, top);
-      html += `<div class="v2-suele"><h4>Lo que suele llevar este cliente</h4><div class="v2-suele-fila">` + top.map(k => {
+      const items = top.map(k => {
         const hit = m[k];
-        /* Sin coincidencia exacta con el catálogo no se inventa foto ni precio: queda el texto tal cual lo pidió. */
-        const img = hit && hit.p.foto ? `<img src="${esc(hit.p.foto)}" alt="" loading="lazy" onerror="this.remove()">` : "";
-        const pr = hit && hit.p.mayorista ? money(hit.p.mayorista * (hit.pr.factor || 1)) : "";
         const actual = hit ? cvCantidadActual(hit.p, hit.pr) : cantidadTexto(k);
-        /* Un toque suma lo que ESTE cliente pide habitualmente (no un genérico +1). Sin
-           dato de historial, cae al mínimo/paso del producto (o 1 si es texto libre). */
-        const qHab = hab[k] || (hit ? Math.max(cvPaso(hit.p), cvMinimo(hit.p) || cvPaso(hit.p)) : 1);
-        const ctrl = actual > 0
-          ? `<div class="qty"><button type="button" data-hab-menos="${esc(k)}" aria-label="Restar">−</button><span>${actual}</span><button type="button" class="mas" data-hab-mas="${esc(k)}" aria-label="Sumar">+</button></div>`
-          : `<button type="button" class="habadd" data-hab-set="${esc(k)}" data-hab-qty="${qHab}" aria-label="Sumar la cantidad habitual">+${qHab}</button>`;
-        return `<div class="v2-mini ${img ? "" : "sin"}">${img}<div class="nom">${esc(hit ? hit.p.nombre : k)}</div><div class="pie"><span class="pr">${pr}</span>${actual > 0 ? "" : ctrl}</div>${actual > 0 ? ctrl : ""}</div>`;
-      }).join("") + `</div></div>`;
+        if (actual > 0) return null;
+        /* Sin coincidencia exacta con el catálogo no se inventa foto ni precio: queda el texto tal cual lo pidió. */
+        return { key: k, img: hit && hit.p.foto, nombre: hit ? hit.p.nombre : k,
+          sub: hit ? [hit.p.marca, hit.pr.id !== "un" ? hit.pr.label : ""].filter(Boolean).join(" · ") : "",
+          precio: hit && hit.p.mayorista ? money(hit.p.mayorista * (hit.pr.factor || 1)) : "",
+          qty: hab[k] || (hit ? Math.max(cvPaso(hit.p), cvMinimo(hit.p) || cvPaso(hit.p)) : 1) };
+      }).filter(Boolean);
+      html += sugBloque(items, "data-hab");
     }
     if (box._html !== html) { box.innerHTML = html; box._html = html; }     // no se redibuja si no cambió nada
     /* «Pedido anterior» y «lo que suele llevar» se ven en los dos modos, salvo mientras se busca. */
@@ -11025,16 +11403,10 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       const conProducto = topEanes.map(ean => porEan[ean]).filter(Boolean);
       if (conProducto.length) {
         const hab = habitualesQR(h);
-        html = `<div class="v2-suele"><h4>Lo que suele llevar este cliente</h4><div class="v2-suele-fila">` + conProducto.map(p => {
-          const it = carrito.find(i => i.ean === p.ean);
-          const actual = it ? it.cantidad : 0;
-          const qHab = hab[p.ean] || 1;
-          const pr = p.precioBulto ? money(p.precioBulto) : "";
-          const ctrl = actual > 0
-            ? `<div class="qty"><button type="button" data-hqr-menos="${esc(p.ean)}" aria-label="Restar">−</button><span>${actual}</span><button type="button" class="mas" data-hqr-mas="${esc(p.ean)}" aria-label="Sumar">+</button></div>`
-            : `<button type="button" class="habadd" data-hqr-set="${esc(p.ean)}" data-hqr-qty="${qHab}" aria-label="Sumar la cantidad habitual">+${qHab}</button>`;
-          return `<div class="v2-mini"><img src="${esc(p.ean)}.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="nom">${esc(p.nombre)}</div><div class="pie"><span class="pr">${pr}</span>${actual > 0 ? "" : ctrl}</div>${actual > 0 ? ctrl : ""}</div>`;
-        }).join("") + `</div></div>`;
+        const items = conProducto.filter(p => !carrito.some(i => i.ean === p.ean && (i.cantidad || 0) > 0)).map(p => ({
+          key: p.ean, img: p.ean + ".jpg", nombre: p.nombre, sub: p.marca + " · Caja x " + p.uc,
+          precio: p.precioBulto ? money(p.precioBulto) + "/caja" : "", qty: hab[p.ean] || 1 }));
+        html = sugBloque(items, "data-hqr");
       }
     }
     if (box._html !== html) { box.innerHTML = html; box._html = html; }
@@ -11071,10 +11443,11 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
         }).join("");
     }
     html += `<div class="v2-hsec"><b>Enviados</b><small>${yo ? "tus últimos pedidos" : "elegí tu nombre de vendedor para ver los tuyos"}</small></div>`;
-    html += hist.length ? hist.map((x, i) => `<div class="v2-hcard"><div class="t"><b>${esc(nombreCli(x.cliente))}</b>
+    html += hist.length ? hist.map((x, i) => `<div class="v2-hcard ${S.histAbierto === i ? "abierta" : ""}" data-ver-i="${i}"><div class="t"><b>${esc(nombreCli(x.cliente))}</b>
         <small>Entrega ${esc(fechaLinda(x.fecha))} · ${nArt(x.productos)} artículos</small>
         <span class="v2-hest ok">✓ Enviado</span></div>
-        <button type="button" class="v2-hrep" data-rep-i="${i}">↻ Repetir</button></div>`).join("")
+        <button type="button" class="v2-hrep" data-rep-i="${i}">↻ Repetir</button>
+        ${S.histAbierto === i ? '<ul class="v2-hdet">' + String(x.productos).split("\n").filter(l => l.trim()).map(l => "<li>" + esc(l.replace(/\s*#\d+\s*$/, "")) + "</li>").join("") + "</ul>" : '<span class="v2-hver">Ver qué llevó ▾</span>'}</div>`).join("")
       : `<div class="v2-vacio-res">Todavía no hay pedidos tuyos para mostrar${navigator.onLine ? "" : " (sin señal)"}.</div>`;
     if (box._html !== html) { box.innerHTML = html; box._html = html; }
   }
@@ -11127,13 +11500,51 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       <div class="v2-info" data-a="ver"><div class="v2-nom">${esc(p.nombre)}</div><div class="v2-meta">${esc(p.marca)}${pres.id !== "un" ? " · " + esc(pres.label) : ""}</div>${precio}${nota}${ev}${otra}${tog}</div>
       ${qty}</div>`;
   }
+  /* Catálogo en GRILLA de 2 columnas con foto grande (como el modelo) o
+     en lista compacta. Se elige con el botón al lado del contador y queda
+     recordado en el celular. Los dos usan los mismos controles y eventos. */
+  const K_VISTA = "v2_catalogo_vista";
+  const enGrilla = () => { try { return localStorage.getItem(K_VISTA) !== "lista"; } catch (e) { return true; } };
+  function tarjetaHtml(p, i) {
+    const pres = cvGetPres(p), lista = cvPresDe(p), factor = pres.factor || 1;
+    const cant = cvCantidadActual(p, pres);
+    const abrev = pres.id === "un" ? "u" : pres.label.toLowerCase();
+    const precio = p.mayorista ? money(p.mayorista * factor) + '<small>/' + esc(abrev) + '</small>' : '<span class="sin">Precio a confirmar</span>';
+    const tog = lista.length > 1
+      ? '<div class="v2-tog">' + lista.map(pr => '<button type="button" data-u="' + esc(pr.id) + '" class="' + (pr.id === pres.id ? "on" : "") + '">' + esc(pr.id === "un" ? "Unidad" : pr.label) + '</button>').join("") + '</div>' : "";
+    const min = cvMinimo(p), paso = cvPaso(p);
+    const nota = pres.id === "un" && min > 1 ? '<div class="v2-aviso">Mín. ' + min + (paso > 1 ? " · de a " + paso : "") + '</div>' : "";
+    const ev = p.eventual ? '<div class="v2-aviso">⚠ Consultar stock</div>' : "";
+    const hay = lista.some(pr => cvCantidadActual(p, pr) > 0);
+    const accion = cant
+      ? '<div class="v2-qty v2-card-step"><button type="button" data-a="menos" aria-label="Restar">−</button><span class="n">' + cant + '</span><button type="button" class="mas" data-a="mas" aria-label="Sumar">+</button></div>'
+      : '<button type="button" class="v2-card-mas" data-a="mas" aria-label="Agregar">+</button>';
+    return '<div class="v2-row v2-card ' + (hay ? "en-pedido" : "") + '" data-i="' + i + '">' +
+      '<div class="v2-card-img" data-a="ver"><img src="' + esc(p.foto) + '" alt="" loading="lazy" onerror="this.style.opacity=.15"></div>' +
+      '<div class="v2-card-nom" data-a="ver">' + esc(p.nombre) + '</div>' +
+      '<div class="v2-card-pie"><div class="v2-card-pr">' + precio + '</div>' + (cant ? "" : accion) + '</div>' +
+      (cant ? accion : "") + tog + nota + ev + '</div>';
+  }
+  const itemHtml = (p, i) => enGrilla() ? tarjetaHtml(p, i) : filaHtml(p, i);
+
   function pintarLista() {
     const grid = $("cvGrid"); if (!grid) return;
+    grid.classList.toggle("v2-grilla", enGrilla());
+    seguro(() => {
+      let b = $("v2VistaBtn");
+      if (!b) {
+        b = document.createElement("button"); b.type = "button"; b.id = "v2VistaBtn"; b.className = "v2-vista";
+        b.onclick = () => { try { localStorage.setItem(K_VISTA, enGrilla() ? "lista" : "grilla"); } catch (e) {} pintarLista(); };
+        $("v2Cuenta").after(b);
+      }
+      b.textContent = enGrilla() ? "☰ Lista" : "▦ Fotos";
+      b.setAttribute("aria-label", enGrilla() ? "Ver como lista" : "Ver con fotos grandes");
+    });
     S.lista = cvItemsFiltrados();
     const total = S.lista.length, ver = S.lista.slice(0, S.limite);
     $("v2Cuenta").textContent = total + (total === 1 ? " producto" : " productos");
     grid.innerHTML = total
-      ? ver.map((p, i) => filaHtml(p, i)).join("") + (total > ver.length ? `<button type="button" class="v2-chip" data-mas-lista="1" style="align-self:center;margin:6px 0">Mostrar más (${total - ver.length})</button>` : "")
+      ? ver.map((p, i) => itemHtml(p, i)).join("") + (total > ver.length ? `<button type="button" class="v2-chip" data-mas-lista="1" style="align-self:center;margin:6px 0">Mostrar más (${total - ver.length})</button>` : "")
       : `<div class="v2-vacio">🔍 No encontré nada con ese filtro</div>`;
   }
   function eventosLista() {
@@ -11144,7 +11555,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       const p = S.lista[+fila.dataset.i]; if (!p) return;
       const pres = cvGetPres(p), paso = pres.id === "un" ? cvPaso(p) : 1;
       const ub = e.target.closest("[data-u]");
-      if (ub) { cvUnidadSel[p.codigo] = ub.dataset.u; fila.outerHTML = filaHtml(p, +fila.dataset.i); return; }
+      if (ub) { cvUnidadSel[p.codigo] = ub.dataset.u; fila.outerHTML = itemHtml(p, +fila.dataset.i); return; }
       const ab = e.target.closest("[data-a]"); if (!ab) return;
       const a = ab.dataset.a, cant = cvCantidadActual(p, pres);
       if (a === "ver") { seguro(() => cvAbrirSheet(+fila.dataset.i)); return; }
@@ -11153,7 +11564,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       if (a === "menos") nuevo = Math.max(0, cant - paso);
       seguro(() => navigator.vibrate && navigator.vibrate(8));
       cvSetCantidadLinea(p, pres, nuevo);
-      const nf = document.createElement("div"); nf.innerHTML = filaHtml(p, +fila.dataset.i);
+      const nf = document.createElement("div"); nf.innerHTML = itemHtml(p, +fila.dataset.i);
       fila.replaceWith(nf.firstElementChild);
       refrescar();
     });
@@ -11229,9 +11640,10 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const ambos = hayML && qr.n;
     $("v2Tot").innerHTML = totML + totQR +
       (ambos || hayML || qr.n
-        ? `<div class="grande"><span>${ambos ? "Total del pedido" : "Total"}${hayML ? " aprox." : ""}</span><span>${money((hayML ? t.total : 0) + qr.total)}</span></div>`
+        ? `<div class="grande"><span>${hayML && t.sinPrecio ? "Total parcial" : (ambos ? "Total del pedido" : "Total") + (hayML ? " aprox." : "")}</span><span>${money((hayML ? t.total : 0) + qr.total)}</span></div>`
         : "") +
-      (hayML && t.sinPrecio ? `<small>${t.sinPrecio} renglón(es) sin precio no suman.</small>` : "");
+      (hayML && t.sinPrecio ? `<small class="v2-falta">Faltan valorar ${t.sinPrecio} artículo${t.sinPrecio === 1 ? "" : "s"} (escritos a mano, sin precio de catálogo): el total final lo pone facturación.</small>` : "") +
+      (hayML || qr.n ? '<button type="button" class="v2-res-vaciar" data-vaciar-todo="1"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Vaciar pedido</button>' : "");
 
     /* Solo Queruclor: la pantalla toma su color, como el resto del módulo. */
     document.body.classList.toggle("v2-res-qr", !hayML && !!qr.n);
@@ -11263,6 +11675,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const hayQR = !!(window.QR && QR.totalCajas() > 0);
     if (!hayML && !hayQR) { toast("Agregá al menos un producto", "error"); return; }
     if (!clienteId()) { abrirCliente(); return; }
+    if (window.clienteAjeno && clienteAjeno(clienteId())) { toast("El cliente N° " + clienteId() + " no está en tu cartera. Elegí uno de tus clientes.", "error"); abrirCliente(); return; }
     if (!$("fechaEntrega").value) { seguro(() => marcarCampo($("fechaEntrega"), "Falta la fecha de entrega: tocá el campo marcado y elegí el día")); return; }
     if (!(localStorage.getItem("nombreVendedor") || "").trim()) {
       seguro(() => { const vp = $("vendPick"); vp.classList.remove("hidden"); vp.classList.remove("needs-vend"); void vp.offsetWidth; vp.classList.add("needs-vend");
@@ -11298,11 +11711,21 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       /* Inicio */
       const nom = (localStorage.getItem("nombreVendedor") || "").trim();
       const cap = nom ? nom.split(" ")[0].charAt(0).toUpperCase() + nom.split(" ")[0].slice(1).toLowerCase() : "";
-      $("v2HolaNom").innerHTML = cap ? `Hola, <b style="font-size:inherit">${esc(cap)}</b> 👋` : "Hola 👋";
-      let cartera = 0; if (S.p === "home") seguro(() => Object.values(clientNames).forEach(x => { if (esDeMiCartera(x)) cartera++; }));
-      const hora = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-      $("v2HolaSub").textContent = c ? "Cliente: " + c.name + (c.descuento != null ? " · " + c.descuento + "% desc." : "")
-        : "Hoy " + hora + (cartera ? " · " + cartera + " clientes" : "") + " · tocá para elegir cliente";
+      $("v2HolaNom").innerHTML = cap ? "¡Hola, " + esc(cap) + "! 👋" : "¡Hola! 👋";
+      const hoyTx = new Date().toLocaleDateString("es-AR", { day: "numeric", month: "long" });
+      $("v2HolaSub").innerHTML = c ? "Cliente: <b>" + esc(c.name) + "</b>" + (c.descuento != null ? " · " + esc(c.descuento) + "% desc." : "") + "<br>Tocá para cambiarlo"
+        : "Hoy " + hoyTx + "<br>Tocá para elegir cliente";
+      /* Pedido en curso: si hay algo cargado, se ve apenas se abre la app. */
+      let nQR = 0; seguro(() => { nQR = QR.getCarrito().length; });
+      const ec = $("v2EnCurso");
+      if (c && (t.n || nQR)) {
+        ec.hidden = false;
+        $("v2EnCursoSub").textContent = [t.n ? t.n + " de Mercado Limpio" : "", nQR ? nQR + " de Queruclor" : ""].filter(Boolean).join(" + ");
+      } else ec.hidden = true;
+      let nOf = 0; seguro(() => { nOf = (QR.catalogo || []).filter(p => window.Ofertas && Ofertas.para(p.tipo === "familia" ? p.familiaKey : p.ean)).length; });
+      $("v2OfSub").textContent = nOf ? nOf + " en Queruclor" : "Promociones especiales";
+      $("v2RedTx").textContent = navigator.onLine ? "En línea" : "Sin señal";
+      document.querySelectorAll("#v2Nav button").forEach(b => b.classList.toggle("on", (b.dataset.n === "home" && S.p === "home") || (b.dataset.n === "cola" && S.p === "historial")));
       $("v2Red").classList.toggle("on", navigator.onLine);
       let enCola = 0; seguro(() => { enCola = getQueue().length; });
       $("v2ColaN").textContent = enCola; $("v2ColaN").classList.toggle("on", enCola > 0);
@@ -11350,6 +11773,7 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       /* Filtro de marca y estado de la vista */
       seguro(() => { $("v2MarcaBtn").textContent = "Marca: " + (cvMarcaActiva === "TODAS" ? "Todas" : cvMarcaActiva) + " ▾"; });
       const foto = cargaModoActual() === "fotos";
+      document.body.classList.toggle("v2-modo-foto", foto);
       $("v2MarcaFila").style.display = foto ? "flex" : "none";
       if ($("cvCats")) $("cvCats").style.display = foto ? "" : "none";
       if (S.p === "resumen") {
@@ -11365,9 +11789,20 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     $("v2GoCargar").onclick = () => entrarModulo("cargar");
     $("v2GoQr").onclick = () => entrarModulo("queruclor");
     $("v2GoCola").onclick = () => ir("historial");
+    $("v2EnCurso").onclick = () => abrirResumen();
+    $("v2GoOfertas").onclick = () => {
+      let n = 0; seguro(() => { n = (QR.catalogo || []).filter(p => window.Ofertas && Ofertas.para(p.tipo === "familia" ? p.familiaKey : p.ean)).length; });
+      if (!n) { toast("Hoy no hay ofertas cargadas"); return; }
+      entrarModulo("queruclor");
+      setTimeout(() => seguro(() => { QR.abrir(); QR.setCat("OFERTAS"); }), 150);
+    };
     $("v2HistLista").addEventListener("click", e => {
       if (e.target.closest("[data-reintentar]")) { seguro(() => $("btnReintentarTodos").click()); toast("Reintentando…"); setTimeout(pintarHistorial, 1500); return; }
-      const b = e.target.closest("[data-rep-i]"); if (!b) return;
+      const b = e.target.closest("[data-rep-i]");
+      if (!b) {
+        const card = e.target.closest("[data-ver-i]"); if (!card) return;
+        const i = +card.dataset.verI; S.histAbierto = S.histAbierto === i ? null : i; pintarHistorial(); return;
+      }
       const x = _histItems[+b.dataset.repI]; if (x) repetirDe(x);
     });
     $("v2Hola").onclick = () => abrirCliente();
@@ -11410,12 +11845,22 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     };
     $("v2Enviar").onclick = enviar;
     $("v2ResCli").onclick = () => abrirCliente();
+    $("v2Tot").addEventListener("click", e => {
+      if (!e.target.closest("[data-vaciar-todo]")) return;
+      confirmApp({ titulo: "¿Vaciar todo el pedido?", mensaje: "Se borran los artículos de Mercado Limpio <b>y</b> el carrito de Queruclor. El cliente queda elegido.", si: "SÍ, VACIAR", no: "NO, DEJAR" }, () => {
+        const p = $("productos"); p.value = ""; p.dispatchEvent(new Event("input", { bubbles: true })); seguro(() => saveDraft());
+        seguro(() => QR.vaciarCarrito());
+        toast("Pedido vaciado"); S.resHash = null; pintarResumen(); refrescar();
+      });
+    });
     $("v2CliBg").onclick = e => { if (e.target.id === "v2CliBg") cerrarCliente(); };
+    $("v2CliCerrar").onclick = () => cerrarCliente();
     $("v2MasBg").onclick = e => { if (e.target.id === "v2MasBg") $("v2MasBg").classList.remove("abierto"); };
     $("v2MasBg").querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
       $("v2MasBg").classList.remove("abierto");
       const m = b.dataset.m;
-      if (m === "ayuda") $("btnAyuda").click(); else ir(m);
+      if (m === "cerrar") return;
+      if (m === "ayuda") $("btnAyuda").click(); else if (m === "clientes") abrirCliente(); else ir(m);
     });
     $("v2Nav").querySelectorAll("button").forEach(b => b.onclick = () => {
       const n = b.dataset.n;
@@ -11545,12 +11990,13 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
     const TAG = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Zm4.5-3A1.5 1.5 0 1 0 7.5 6a1.5 1.5 0 0 0 0 3Z"/></svg>';
     window.acItemHtml = function (id, c, isFirst, mio) {
       if (!MQ.matches) return orig.apply(this, arguments);
-      const elegido = String($("numeroCliente").value || "").trim() === String(id);
-      const der = elegido ? '<span class="v2c-ok" aria-label="Elegido">✓</span>'
-        : (c.descuento != null ? '<span class="v2c-desc">' + TAG + esc(String(c.descuento)) + '%</span>' : "");
+      const elegido = String((S.cliAbierta ? S.cliAlAbrir : $("numeroCliente").value) || "").trim() === String(id);
+      const d = c.descuento != null && c.descuento !== "" ? Number(c.descuento) : null;
+      const der = (d != null ? '<span class="v2c-pct' + (d > 0 ? "" : " cero") + '">' + esc(String(c.descuento)) + '%</span>' : "") +
+        (elegido ? '<span class="v2c-ok" aria-label="Elegido">✓</span>' : '<span class="v2c-chev" aria-hidden="true">›</span>');
       return '<div class="ac-item v2c' + (elegido ? " sel" : "") + (isFirst ? " active" : "") + '" data-id="' + esc(id) +
         '" onmousedown="selectCliente(&#39;' + esc(id) + '&#39;)">' +
-        '<div class="v2c-tx"><span class="v2c-id">' + esc(id) + (mio ? '<span class="mio" title="De tu cartera">★</span>' : "") + '</span>' +
+        '<div class="v2c-tx"><span class="v2c-id">' + (mio ? '<span class="mio" title="De tu cartera">★</span>' : "") + esc(id) + '</span>' +
         '<b class="v2c-nom">' + esc(c.name) + '</b>' +
         (c.desc ? '<span class="v2c-dir">' + PIN + '<span>' + esc(c.desc) + '</span></span>' : "") +
         (c.corrupted ? '<span class="v2c-dato">Revisar datos de este cliente</span>' : "") +
@@ -11564,6 +12010,11 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       if (!MQ.matches || !opts || !opts.autoSelect) return origShow.apply(this, arguments);
       const t = String(q || "").trim();
       if (/^\d+$/.test(t) && clientNames[t]) { selectCliente(t); return; }
+      if (/^\d+$/.test(t) && window.clienteAjeno && clienteAjeno(t)) {
+        const drop = $("clienteDropdown");
+        if (drop) { drop.innerHTML = '<div class="v2c-ajeno">El cliente N° ' + esc(t) + ' no está en tu cartera.<small>Si lo estás cubriendo, pedile a Pablo que te preste esa cartera.</small></div>'; drop.style.display = "block"; }
+        return;
+      }
       return origShow.call(this, q, Object.assign({}, opts, { autoSelect: false }));
     };
     /* X para borrar lo escrito, dentro del campo */
@@ -11588,20 +12039,8 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
   function montarCartera() {
     const slot = $("v2CliSlot"), orig = window.showAutocomplete;
     if (!slot || typeof orig !== "function") return;
-    let todos = false;                                   // espejo de _verTodosCartera de la app original
-    const chips = document.createElement("div");
-    chips.className = "v2-cartera"; chips.setAttribute("role", "group"); chips.setAttribute("aria-label", "Qué clientes mostrar");
-    chips.innerHTML = '<button type="button" data-t="0" class="on">★ Mi cartera</button><button type="button" data-t="1">Todos</button>';
-    slot.insertBefore(chips, slot.firstChild);
-    chips.addEventListener("mousedown", e => e.preventDefault());   // que no se cierre el teclado
-    chips.addEventListener("click", e => {
-      const b = e.target.closest("[data-t]"); if (!b) return;
-      const quiero = b.dataset.t === "1";
-      if (quiero !== todos) { todos = quiero; seguro(() => toggleVerTodos({ preventDefault() {}, stopPropagation() {} })); }
-      chips.querySelectorAll("button").forEach(x => x.classList.toggle("on", (x.dataset.t === "1") === todos));
-      seguro(() => window.showAutocomplete($("numeroCliente").value, { autoSelect: false }));
-      seguro(() => $("numeroCliente").focus({ preventScroll: true }));
-    });
+    if (!window.esDeMiCartera) return;
+    const todos = false;   // cada vendedor ve solo su cartera (cartera-vendedor.js): no hay «Todos»
     const prev = window.showAutocomplete;
     window.showAutocomplete = function (q, opts) {
       if (!MQ.matches || String(q || "").trim()) return prev.apply(this, arguments);
@@ -11616,7 +12055,6 @@ body.ui2[data-v2="queruclor"] .v2-promo.on{ display:flex; }
       let html = "";
       if (rec.length) html += '<div class="ac-header">Recientes</div>' + rec.map(([id, c], i) => acItemHtml(id, c, i === 0, seguro(() => esDeMiCartera(c)))).join("");
       if (cart.length) html += '<div class="ac-header">★ Tu cartera · ' + cart.length + '</div>' + cart.map(([id, c]) => acItemHtml(id, c, false, true)).join("");
-      if (todos) html += '<div class="ac-header">Escribí número, nombre o dirección para buscar entre todos</div>';
       drop.innerHTML = html; drop.style.display = "block";
     };
   }
