@@ -1,6 +1,65 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   GUARDIA DEL LINK DE PRUEBA — va PRIMERO en el <head>, antes que nada
+
+   El link de prueba (pablosantamaria26.github.io/pedidos-unificado-prueba)
+   y la app de producción (pablosantamaria26.github.io/App-Pedidos-ML)
+   están en el MISMO dominio. El navegador les da la misma memoria local
+   (localStorage): la cola de pedidos de la prueba la podía leer y MANDAR
+   la app de producción, y el borrador o el vendedor se pisaban entre las
+   dos. Quitar un cartel o cambiar una URL no alcanza; esto aísla de verdad.
+
+   1. MEMORIA APARTE: todo lo que esta página guarda o lee lleva el prefijo
+      «prueba:» (pedidosPendientes → prueba:pedidosPendientes). Producción
+      nunca ve la cola de prueba, y la prueba nunca toca lo de producción.
+   2. RED: ninguna escritura (POST/PUT/PATCH/DELETE) sale a otro dominio,
+      por ningún camino (fetch, XMLHttpRequest, sendBeacon, formularios),
+      salvo el servidor de PRUEBA. Lo que se frena queda anotado en
+      window.__bloqueados para poder verificarlo. Leer (GET) sí se puede.
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  /* ── 1. Memoria aparte ── */
+  var P = "prueba:";
+  var S = Storage.prototype, g = S.getItem, s = S.setItem, r = S.removeItem, k = S.key;
+  var propias = function (st) { var out = []; for (var i = 0; i < st.length; i++) { var x = k.call(st, i); if (x && x.indexOf(P) === 0) out.push(x); } return out; };
+  S.getItem = function (x) { return g.call(this, P + x); };
+  S.setItem = function (x, v) { return s.call(this, P + x, v); };
+  S.removeItem = function (x) { return r.call(this, P + x); };
+  S.key = function (i) { var l = propias(this)[i]; return l ? l.slice(P.length) : null; };
+  S.clear = function () { var st = this; propias(st).forEach(function (x) { r.call(st, x); }); };
+
+  /* ── 2. Red: sin escrituras afuera ── */
+  var PERMITIDOS = ["queruclor-prueba-api.santamariapablodaniel.workers.dev"];   // servidor de PRUEBA
+  window.__bloqueados = [];
+  var ajeno = function (u) {
+    try { var url = new URL(u, location.href); return url.origin !== location.origin && PERMITIDOS.indexOf(url.hostname) < 0; }
+    catch (e) { return false; }
+  };
+  var anotar = function (via, metodo, u) { window.__bloqueados.push({ via: via, metodo: metodo, url: String(u).split("?")[0] }); };
+
+  var f0 = window.fetch;
+  window.fetch = function (input, opts) {
+    var u = (input && input.url) || input, m = String((opts && opts.method) || (input && input.method) || "GET").toUpperCase();
+    if (m !== "GET" && m !== "HEAD" && ajeno(u)) { anotar("fetch", m, u); return Promise.resolve(new Response('{"status":"ok","prueba":true}', { status: 200, headers: { "Content-Type": "application/json" } })); }
+    return f0.apply(this, arguments);
+  };
+  var X = XMLHttpRequest.prototype, open0 = X.open, send0 = X.send;
+  X.open = function (m, u) { this.__m = String(m || "GET").toUpperCase(); this.__u = u; return open0.apply(this, arguments); };
+  X.send = function () {
+    if (this.__m !== "GET" && this.__m !== "HEAD" && ajeno(this.__u)) { anotar("xhr", this.__m, this.__u); try { this.abort(); } catch (e) {} return; }
+    return send0.apply(this, arguments);
+  };
+  if (navigator.sendBeacon) { var b0 = navigator.sendBeacon.bind(navigator); navigator.sendBeacon = function (u) { if (ajeno(u)) { anotar("beacon", "POST", u); return true; } return b0.apply(null, arguments); }; }
+  var sub0 = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () { if (ajeno(this.action)) { anotar("form", (this.method || "GET").toUpperCase(), this.action); return; } return sub0.apply(this, arguments); };
+  document.addEventListener("submit", function (e) { var fm = e.target; if (fm && fm.action && ajeno(fm.action)) { e.preventDefault(); anotar("form", (fm.method || "GET").toUpperCase(), fm.action); } }, true);
+})();
+
+</script>
 <script>window.QR_API_BASE="https://queruclor-prueba-api.santamariapablodaniel.workers.dev";</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <meta charset="UTF-8">
