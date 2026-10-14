@@ -10655,7 +10655,9 @@ body.ui2 .v2-sug-mostrar{ width:100%; min-height:46px; border:1.5px dashed var(-
   body.ui2 .v2-encurso b{ display:block; font-size:15.5px; font-weight:800; }
   body.ui2 .v2-encurso small{ display:block; font-size:12.5px; color:var(--ml-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   body.ui2 .v2-ec-go{ flex:none; font-size:14px; font-weight:800; color:var(--ml-navy); }
-  body.ui2 .v2-dos{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  /* minmax(0,1fr): sin esto la columna no baja de lo que mide su palabra más larga y a 320 px la
+     tarjeta «Pedidos activos» se salía 14 px por la derecha. */
+  body.ui2 .v2-dos{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; }
   body.ui2 .v2-big{ min-height:208px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px; padding:16px 12px 14px;
  font:inherit; text-align:center; cursor:pointer; }
   body.ui2 .v2-big:active{ transform:scale(.985); }
@@ -10675,7 +10677,8 @@ body.ui2 .v2-sug-mostrar{ width:100%; min-height:46px; border:1.5px dashed var(-
   body.ui2 .v2-mini2 small{ display:block; font-size:12px; color:var(--ml-text-secondary); line-height:1.25; }
   body.ui2 .v2-mini2 .v2-pend{ position:absolute; top:8px; right:8px; }
   /* Muy angosto: las dos tarjetas grandes se apilan (el plan: lado a lado solo si se leen bien). */
-  @media (max-width:339px){ body.ui2 .v2-dos:not(.chico){ grid-template-columns:1fr; } body.ui2 .v2-big{ min-height:150px; } }
+  @media (max-width:339px){ body.ui2 .v2-dos:not(.chico){ grid-template-columns:1fr; } body.ui2 .v2-big{ min-height:150px; }
+    body.ui2 .v2-mini2{ gap:8px; padding-left:10px; } body.ui2 .v2-mini2 b{ font-size:14px; } }
 }
 @media (max-width:899px){
   body.ui2 .v2-hola small b{ font-size:inherit; font-weight:800; color:var(--ml-text); }
