@@ -5952,12 +5952,16 @@ body{ padding-bottom:22px; }
   "use strict";
 
   /* Glosario por palabra clave. Gana la clave más LARGA que aparezca
-     («TRAPO DE PISO» antes que «TRAPO»). Nombres genéricos, sin color ni
-     tamaño: el detalle exacto queda en el español de abajo. */
+     («TRAPO DE PISO» antes que «TRAPO»), y se busca la PALABRA ENTERA:
+     antes se buscaba un pedazo y «CACEROLA» encontraba «ACERO» (salía
+     «virulana»). Revisado el 14/10/2026 con la corrección que mandó Pablo.
+     El detalle exacto (marca, color, medida) queda en el español de abajo;
+     talles y medidas que se entienden igual se agregan en chino. */
   const GLOSARIO = [
     // Queruclor
-    ["AGUA LAVANDINA", "漂白水"], ["LAVANDINA", "漂白水"],
-    ["LAVAVAJILLA", "洗洁精"], ["DETERGENTE", "洗洁精"],
+    ["AGUA LAVANDINA", "漂白水"], ["LAVANDINA", "漂白水"], ["LAVANDINA ADITIVADA EN GEL", "凝胶漂白水"], ["EN GEL", "凝胶漂白水"],
+    ["LAVANDINA CONCENTRADA", "浓缩漂白水"], ["ROPA BLANCA", "白衣漂白水"],
+    ["LAVAVAJILLAS", "洗洁精"], ["LAVAVAJILLA", "洗洁精"], ["DETERGENTE", "洗洁精"],
     ["LIQUIDO LIMPIADOR", "地板清洁剂"], ["LIMPIAPISOS", "地板清洁剂"], ["DESODORANTE DE PISO", "地板清洁剂"],
     ["LAVAR ROPA", "洗衣液"], ["JABON LIQUIDO PARA LA ROPA", "洗衣液"], ["POLVO PARA LAVAR", "洗衣粉"], ["JABON EN POLVO", "洗衣粉"],
     ["SUAVIZANTE", "衣物柔顺剂"], ["PERFUMANTE PARA ROPA", "衣物香氛"], ["QUITAMANCHAS", "去渍剂"],
@@ -5970,26 +5974,53 @@ body{ padding-bottom:22px; }
     ["SHAMPOO", "洗发水"], ["ACONDICIONADOR", "护发素"], ["ANTITRANSPIRANTE", "止汗剂"], ["DESODORANTE", "除臭剂"],
     ["FRAGANCIA", "香水"], ["JABON LIQUIDO", "洗手液"], ["JABON DE TOCADOR", "香皂"], ["JABON", "肥皂"],
     ["NIEVE", "喷雪（派对用）"], ["TOALLITAS", "湿巾"],
-    // Mercado Limpio (artículos habituales)
-    ["TRAPO DE PISO", "地板布"], ["TRAPO", "抹布"], ["REJILLA", "洗碗布"], ["REPASADOR", "擦碗布"], ["FRANELA", "绒布"],
-    ["GAMUZA", "麂皮布"], ["PAÑO", "抹布"], ["MICROFIBRA", "超细纤维布"],
-    ["ESPONJA DE ACERO", "钢丝球"], ["VIRULANA", "钢丝球"], ["ACERO", "钢丝球"], ["ESPONJA", "海绵"],
-    ["ESCOBILLON", "扫帚"], ["ESCOBA", "扫帚"], ["SECADOR", "地板刮水器"], ["CABO", "长柄"], ["MOPA", "拖把"],
-    ["LAMPAZO", "拖把"], ["PALA", "簸箕"], ["PLUMERO", "掸子"], ["CEPILLO", "刷子"], ["SOPAPA", "马桶搋子"],
+    // Mercado Limpio: paños y rejillas
+    ["TRAPO DE PISO", "地板布"], ["TRAPO", "抹布"], ["REJILLA", "洗碗布"], ["REJILLA ESPONJA", "海绵网布"], ["REJILLA LAVACOCHE", "洗车抹布"],
+    ["REPASADOR", "茶巾"], ["FRANELA", "绒布"], ["GAMUZA", "麂皮布"], ["PAÑO", "抹布"], ["MICROFIBRA", "超细纤维布"],
+    // esponjas, fibras y virulanas (no son lo mismo)
+    ["FIBRA", "百洁布"], ["FIBRA ESPONJA", "百洁布海绵"], ["NO RAYA", "防刮百洁布"], ["ESPONJA", "海绵"],
+    ["ESPONJA ACERO", "钢丝海绵"], ["ESPONJA DE ACERO", "钢丝海绵"], ["ESPONJA DORADA", "金丝海绵"], ["ESPONJA COMBINADA", "组合海绵"],
+    ["ESPONJA SUPERFICIES DELICADAS", "易洁海绵"], ["ESPONJA SUPERFICIES DELICADA", "易洁海绵"], ["VIRULANA", "钢丝球"],
+    // limpieza de pisos y baño
+    ["ESCOBILLON", "扫帚"], ["ESCOBA", "扫帚"], ["ESCOBILLA", "马桶刷"], ["ESCOBILLA CON DEPOSITO", "带座马桶刷"],
+    ["SECADOR", "地板刮水器"], ["CABO", "长柄"], ["CABO MADERA", "木柄"], ["CABO METAL", "金属杆"], ["MOPA", "拖把"],
+    ["LAMPAZO", "拖把"], ["PALA", "簸箕"], ["PLUMERO", "掸子"], ["PLUMERO DE TECHO", "天花板掸子"], ["CEPILLO", "刷子"], ["SOPAPA", "马桶搋子"],
     ["DESTAPACAÑERIA", "管道疏通器"], ["BALDE", "水桶"], ["FUENTON", "大盆"], ["PALANGANA", "盆"],
-    ["GUANTE", "手套"], ["BOLSA", "袋子"], ["CONSORCIO", "大垃圾袋"], ["RESIDUO", "垃圾袋"],
+    // bolsas y guantes
+    ["GUANTE", "手套"], ["BOLSA", "袋子"], ["BOLSA HERMETICA", "密封袋"], ["BOLSA PARA HORNO", "烤箱袋"],
+    ["BOLSA DE RESIDUO", "垃圾袋"], ["CONSORCIO", "大垃圾袋"], ["RESIDUO", "垃圾袋"],
+    // cocina y bazar
+    ["CACEROLA", "汤锅"], ["OLLA", "汤锅"], ["SARTEN", "平底锅"], ["WOK", "炒锅"], ["FUENTE DE VIDRIO", "玻璃烤盘"], ["FUENTE PARA HORNO", "烤盘"],
+    ["CONTENEDOR", "保鲜盒"], ["HERMETICO", "保鲜盒"], ["TAPER", "保鲜盒"], ["MANTECA", "烘焙纸"],
+    ["FILM", "保鲜膜"], ["ALUMINIO", "铝箔纸"], ["EMBUDO", "漏斗"], ["BANDEJA", "托盘"], ["JARRA", "水壶"], ["VASO", "杯子"], ["PLATO", "盘子"],
     ["BROCHE", "衣夹"], ["PERCHA", "衣架"], ["CANASTO", "篮子"], ["CESTO", "篮子"], ["TACHO", "垃圾桶"],
     ["PAPEL HIGIENICO", "卫生纸"], ["ROLLO DE COCINA", "厨房纸巾"], ["SERVILLETA", "餐巾纸"],
-    ["FILM", "保鲜膜"], ["ALUMINIO", "铝箔纸"], ["VELA", "蜡烛"], ["FOSFORO", "火柴"], ["ENCENDEDOR", "打火机"],
-    ["PULVERIZADOR", "喷壶"], ["ROCIADOR", "喷壶"], ["EMBUDO", "漏斗"], ["PINZA", "夹子"], ["BANDEJA", "托盘"],
+    ["VELA", "蜡烛"], ["FOSFORO", "火柴"], ["ENCENDEDOR", "打火机"],
+    ["PULVERIZADOR", "喷壶"], ["ROCIADOR", "喷壶"], ["PINZA", "夹子"],
     ["SECAPLATOS", "沥碗架"], ["ESCURRIDOR", "沥碗架"], ["TENDER", "晾衣架"], ["SOGA", "晾衣绳"],
   ];
-  const ORDEN = GLOSARIO.slice().sort((a, b) => b[0].length - a[0].length);
-  const sinTildes = s => String(s || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/Ñ/g, "N");
+  const sinTildes = s => String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/Ñ/g, "N");
+  /* Palabra entera, con plural opcional (GUANTE → GUANTES, BOLSA → BOLSAS). */
+  const ORDEN = GLOSARIO.slice().sort((a, b) => b[0].length - a[0].length)
+    .map(([k, zh]) => [new RegExp("(^|[^A-Z0-9])" + sinTildes(k).replace(/ /g, "\\s+") + "(ES|S)?(?=$|[^A-Z0-9])"), zh, k]);
+
+  /* Talles (P/M/G/XG al final) y medidas en metros, que se entienden igual en chino. */
+  const TALLE = { P: "小号", M: "中号", G: "大号", XG: "特大号", S: "小号", L: "大号", XL: "特大号" };
+  function extras(t, clave) {
+    const out = [];
+    if (/GUANTE|BOLSA/.test(clave)) { const m = t.match(/\s(XG|XL|P|M|G|S|L)$/); if (m) out.push("（" + TALLE[m[1]] + "）"); }
+    const mt = t.match(/(\d+(?:[.,]\d+)?)\s*(MTS?|METROS?)\b/);
+    if (mt) out.push(" " + mt[1].replace(",", ".") + "米");
+    return out.join("");
+  }
 
   function chino(texto) {
-    const t = sinTildes(texto);
-    for (const [clave, zh] of ORDEN) if (t.includes(sinTildes(clave))) return zh;
+    const t = sinTildes(texto).replace(/\s+/g, " ").trim();
+    for (const [re, zh, k] of ORDEN) if (re.test(t)) {
+      /* «ESPONJA SMIL ACERO»: esponja con acero = 钢丝海绵 (la palabra ACERO entera, no CACEROLA). */
+      if (zh === "海绵" && /(^|[^A-Z])ACERO([^A-Z]|$)/.test(t)) return "钢丝海绵";
+      return zh + extras(t, sinTildes(k));
+    }
     return "";
   }
 
@@ -6044,6 +6075,32 @@ body{ padding-bottom:22px; }
     entrega: () => ["*Entrega 48/72 hs.*"], aviso: num => [T.aviso(num)[1]], gracias: v => [T.gracias(v)[1]],
   };
 
+  /* ── Pedidos largos: los habituales van RESUMIDOS por rubro ─────────
+     Decisión de Pablo (14/10/2026): hasta 10 renglones el mensaje va
+     completo; con más, un pedido de 58 renglones (116 en chino) era una
+     enciclopedia. Va cuántos artículos de cada rubro y el total; el
+     detalle completo igual llega a depósito y facturación. Queruclor va
+     siempre detallado: lleva precio por renglón. */
+  const LIMITE_DETALLE = 10;
+  const RUBROS = [
+    ["Esponjas, fibras y virulanas", "海绵、百洁布、钢丝球", /\b(ESPONJAS?|FIBRAS?|VIRULANAS?|ACERO)\b/],
+    ["Rejillas, trapos y repasadores", "洗碗布、抹布、茶巾", /\b(REJILLAS?|TRAPOS?|REPASADOR(ES)?|FRANELAS?|PANOS?|GAMUZAS?|MICROFIBRAS?)\b/],
+    ["Escobas, cabos y limpieza", "扫帚、长柄、清洁工具", /\b(ESCOBILLON(ES)?|ESCOBAS?|ESCOBILLAS?|CABOS?|SECADOR(ES)?|MOPAS?|LAMPAZOS?|PALAS?|PLUMEROS?|CEPILLOS?|SOPAPAS?|BALDES?|FUENTON(ES)?|PALANGANAS?|DESTAPA\w*)\b/],
+    ["Guantes y bolsas", "手套、袋子", /\b(GUANTES?|BOLSAS?|RESIDUOS?|CONSORCIO)\b/],
+    ["Cocina y bazar", "厨具、杂货", /\b(CACEROLAS?|OLLAS?|SARTEN(ES)?|WOKS?|FUENTES?|CONTENEDOR(ES)?|HERMETIC\w*|TAPERS?|MANTECA|FILM|ALUMINIO|EMBUDOS?|BANDEJAS?|JARRAS?|VASOS?|PLATOS?|TAZAS?|CUBIERTOS?|COLADOR(ES)?|SECAPLATOS|ESCURRIDOR(ES)?)\b/],
+  ];
+  function rubroDe(linea) {
+    const t = sinTildes(linea);
+    for (const r of RUBROS) if (r[2].test(t)) return r;
+    return ["Otros artículos", "其他商品", null];
+  }
+  function resumenHabituales(lineas, idioma) {
+    const cuenta = new Map();
+    for (const l of lineas) { const r = rubroDe(l); cuenta.set(r, (cuenta.get(r) || 0) + 1); }
+    return [...cuenta.entries()].sort((a, b) => (a[0][2] ? 0 : 1) - (b[0][2] ? 0 : 1) || b[1] - a[1])
+      .map(([r, n]) => "• " + (idioma === "zh" ? r[1] + " · " : "") + r[0] + ": " + n);
+  }
+
   /* d = { cliente, numCliente, vendedor, habituales:[líneas], th:{sub,pct,desc,total}|null,
            qr:[{desc, precio}], qrTotal } · plata = formateador de pesos */
   function armar(d, idioma, plata) {
@@ -6051,7 +6108,13 @@ body{ padding-bottom:22px; }
     const out = [...X.hola(d.cliente), "", ...X.confirmamos()];
     const hayQR = d.qr && d.qr.length;
     if (d.habituales && d.habituales.length) {
-      out.push("", ...(hayQR ? X.habituales() : X.detalle()), ...d.habituales.map(l => lineaProducto(l, idioma)));
+      const n = d.habituales.length;
+      if (n > LIMITE_DETALLE) {
+        const tit = X.habituales()[0].replace(/\*$/, "");
+        out.push("", tit + " · " + (idioma === "zh" ? n + " 种 / " : "") + n + " artículos*", ...resumenHabituales(d.habituales, idioma));
+      } else {
+        out.push("", ...(hayQR ? X.habituales() : X.detalle()), ...d.habituales.map(l => lineaProducto(l, idioma)));
+      }
       const th = d.th;
       if (th && th.sub > 0) {
         out.push("");
@@ -6077,7 +6140,7 @@ body{ padding-bottom:22px; }
     try { const m = JSON.parse(localStorage.getItem(K)) || {}; m[num] = idioma; localStorage.setItem(K, JSON.stringify(m)); } catch (e) {}
   }
 
-  const api = { armar, chino, lineaProducto, lineaQR, recordado, recordar, GLOSARIO };
+  const api = { armar, chino, lineaProducto, lineaQR, resumenHabituales, LIMITE_DETALLE, recordado, recordar, GLOSARIO };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else raiz.WAIdioma = api;
 })(typeof window !== "undefined" ? window : globalThis);
